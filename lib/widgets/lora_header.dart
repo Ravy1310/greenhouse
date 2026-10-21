@@ -9,10 +9,11 @@ class LoraHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
         color: AppColors.headerBg,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(0)),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         children: [

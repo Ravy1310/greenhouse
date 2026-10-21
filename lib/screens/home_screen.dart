@@ -4,7 +4,6 @@ import '../theme/app_text_styles.dart';
 import '../widgets/lora_header.dart';
 import '../widgets/siram_manual_card.dart';
 import '../widgets/jadwal_otomatis_card.dart';
-import '../widgets/durasi_semprot_card.dart';
 import '../widgets/kelembapan_riwayat_card.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'deteksi_screen.dart';
@@ -69,9 +68,14 @@ class _HomeScreenState extends State<HomeScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Kontrol page content
 // ─────────────────────────────────────────────────────────────────────────────
-class _KontrolPage extends StatelessWidget {
+class _KontrolPage extends StatefulWidget {
   const _KontrolPage();
 
+  @override
+  State<_KontrolPage> createState() => _KontrolPageState();
+}
+
+class _KontrolPageState extends State<_KontrolPage> {
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -79,23 +83,10 @@ class _KontrolPage extends StatelessWidget {
       children: const [
         SiramManualCard(),
         JadwalOtomatisCard(),
-        DurasiSemprotCard(),
         KelembapanRiwayatCard(),
         _RiwayatHint(),
       ],
     );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Info page content
-// ─────────────────────────────────────────────────────────────────────────────
-class _InfoPage extends StatelessWidget {
-  const _InfoPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const InfoScreen();
   }
 }
 

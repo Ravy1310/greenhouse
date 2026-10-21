@@ -8,16 +8,21 @@ class InfoScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
           _WelcomeHeader(),
+          SizedBox(height: 20),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: _StepGuideSection(),
+          ),
+          SizedBox(height: 20),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: _FAQSection(),
+          ),
           SizedBox(height: 24),
-          _StepGuideSection(),
-          SizedBox(height: 24),
-          _FAQSection(),
-          SizedBox(height: 8),
         ],
       ),
     );
@@ -25,7 +30,7 @@ class InfoScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Welcome header
+// Welcome header — full-width green banner
 // ─────────────────────────────────────────────────────────────────────────────
 class _WelcomeHeader extends StatelessWidget {
   const _WelcomeHeader();
@@ -34,73 +39,66 @@ class _WelcomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      // Tinggi tetap agar proporsional seperti desain
+      constraints: const BoxConstraints(minHeight: 180),
       decoration: const BoxDecoration(
         color: AppColors.headerBg,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(0)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.eco,
-                color: AppColors.lightGreen,
-                size: 24,
+          // ── Ilustrasi daun dekoratif di pojok kanan ───────────────────
+          Positioned(
+            right: -10,
+            top: 0,
+            bottom: 0,
+            child: Opacity(
+              opacity: 0.25,
+              child: Image.asset(
+                'assets/images/leaf_deco.png',
+                width: 130,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const _LeafDecoration(),
               ),
-              SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Selamat datang di', style: AppTextStyles.headerSubtitle),
-                  Text(
-                    'GreenHouse',
-                    style: AppTextStyles.headerTitle,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Rawat tanaman lebih cerdas, dari daun hingga katup.',
-            style: AppTextStyles.headerSubtitle,
-          ),
-          SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: AppColors.mintGreen,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.eco,
-                    color: AppColors.primaryDeep,
-                    size: 22,
+          ),
+
+          // ── Teks konten ───────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 140, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Selamat datang di',
+                  style: TextStyle(
+                    color: AppColors.lightGreen,
+                    fontSize: 13,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Akurasi AI', style: AppTextStyles.cardSubtitle),
-                    Text(
-                      '96,4%',
-                      style: AppTextStyles.humidityValue,
-                    ),
-                  ],
+                SizedBox(height: 4),
+                Text(
+                  'SanseCare',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                  ),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Rawat Sansevieria lebih cerdas, dari\ndaun hingga katup.',
+                  style: TextStyle(
+                    color: AppColors.lightGreen,
+                    fontSize: 13,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w400,
+                    height: 1.5,
+                  ),
                 ),
               ],
             ),
@@ -111,8 +109,56 @@ class _WelcomeHeader extends StatelessWidget {
   }
 }
 
+// Widget dekorasi daun dari kode (fallback jika aset tidak ada)
+class _LeafDecoration extends StatelessWidget {
+  const _LeafDecoration();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 120,
+      child: CustomPaint(
+        painter: _LeafPainter(),
+      ),
+    );
+  }
+}
+
+class _LeafPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF2D6A4F)
+      ..style = PaintingStyle.fill;
+
+    // Gambar tiga daun sederhana
+    for (int i = 0; i < 3; i++) {
+      final offsetX = size.width * (0.3 + i * 0.25);
+      final offsetY = size.height * (0.15 + i * 0.2);
+      final path = Path()
+        ..moveTo(offsetX, offsetY + size.height * 0.35)
+        ..quadraticBezierTo(
+          offsetX - size.width * 0.18,
+          offsetY,
+          offsetX,
+          offsetY - size.height * 0.05,
+        )
+        ..quadraticBezierTo(
+          offsetX + size.width * 0.18,
+          offsetY,
+          offsetX,
+          offsetY + size.height * 0.35,
+        );
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Quick step guide
+// Step guide — semua step dalam satu kartu putih
 // ─────────────────────────────────────────────────────────────────────────────
 class _StepGuideSection extends StatelessWidget {
   const _StepGuideSection();
@@ -124,89 +170,110 @@ class _StepGuideSection extends StatelessWidget {
       children: [
         Text('Panduan Langkah Cepat', style: AppTextStyles.sectionTitle),
         const SizedBox(height: 12),
-        ..._steps,
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.cardBackground,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: const [
+              _StepItem(
+                number: '1',
+                title: 'Pindai',
+                description: 'Arahkan kamera ke daun yang bermasalah.',
+                isLast: false,
+              ),
+              _StepItem(
+                number: '2',
+                title: 'Analisis',
+                description: 'AI mengenali penyakit dan tingkat keparahan.',
+                isLast: false,
+              ),
+              _StepItem(
+                number: '3',
+                title: 'Sinkronisasi',
+                description: 'Hubungkan sensor dan katup lewat BLE/LoRa.',
+                isLast: true,
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
-
-  static const _steps = [
-    _StepItem(
-      number: '1',
-      title: 'Pindai',
-      description: 'Arahkan kamera ke daun yang bermasalah.',
-    ),
-    _StepItem(
-      number: '2',
-      title: 'Analisis',
-      description: 'AI mengenali penyakit dan tingkat keparahan.',
-    ),
-    _StepItem(
-      number: '3',
-      title: 'Sinkronisasi',
-      description: 'Hubungkan sensor dan katup lewat BLE/LoRa.',
-    ),
-  ];
 }
 
 class _StepItem extends StatelessWidget {
   final String number;
   final String title;
   final String description;
+  final bool isLast;
 
   const _StepItem({
     required this.number,
     required this.title,
     required this.description,
+    required this.isLast,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.cardBackground,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.sliderTrack, width: 1),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.primaryGreen,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Center(
-                child: Text(
-                  number,
-                  style: AppTextStyles.chipLabel.copyWith(color: Colors.white),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Nomor lingkaran hijau solid
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    number,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppTextStyles.cardTitle),
-                  const SizedBox(height: 2),
-                  Text(description, style: AppTextStyles.cardSubtitle),
-                ],
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: AppTextStyles.cardTitle),
+                    const SizedBox(height: 2),
+                    Text(description, style: AppTextStyles.cardSubtitle),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+        if (!isLast)
+          const Divider(
+            height: 1,
+            thickness: 1,
+            indent: 62,
+            endIndent: 16,
+            color: AppColors.sliderTrack,
+          ),
+      ],
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pertanyaan Umum (FAQ accordion)
+// Pertanyaan Umum — accordion selalu terbuka setelah di-tap
 // ─────────────────────────────────────────────────────────────────────────────
 class _FAQSection extends StatelessWidget {
   const _FAQSection();
@@ -219,15 +286,15 @@ class _FAQSection extends StatelessWidget {
         Text('Pertanyaan Umum', style: AppTextStyles.sectionTitle),
         const SizedBox(height: 12),
         const _FAQItem(
-          title: 'Membaca hasil AI Vision',
+          title: 'Bagaimana cara memindai daun?',
           description:
-              'Hasil deteksi menampilkan tingkat akurasi, tingkat keparahan infeksi, dan area yang terdampak. Perhatikan overlay warna merah/oranye untuk melihat lokasi infeksi.',
+              'Buka tab Deteksi, arahkan kamera ke daun yang sakit, lalu tekan tombol foto. Hasilnya langsung muncul.',
         ),
         const SizedBox(height: 10),
         const _FAQItem(
-          title: 'Integrasi sensor & LoRa Hub',
+          title: 'Bagaimana cara mengatur jadwal siram?',
           description:
-              'Pastikan LoRa Hub aktif dan sinyal baik (RSSI ideal di atas -70 dBm). Sensor mengirim data ke hub, lalu hub mengontrol katup secara otomatis.',
+              'Buka tab Kontrol, tekan tombol (+) pada Jadwal Otomatis, lalu pilih waktu penyiramannya.',
         ),
       ],
     );
@@ -251,37 +318,26 @@ class _FAQItemState extends State<_FAQItem> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
         color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppColors.sliderTrack, width: 1),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header (tappable) ─────────────────────────────────────────
+          // ── Header ──────────────────────────────────────────────────────
           GestureDetector(
             onTap: () => setState(() => _expanded = !_expanded),
             behavior: HitTestBehavior.opaque,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.vertical(
-                  top: const Radius.circular(14),
-                  bottom:
-                      _expanded ? Radius.zero : const Radius.circular(14),
-                ),
-                color: _expanded ? AppColors.mintGreen : Colors.transparent,
-              ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.help_outline,
-                    color: AppColors.primaryGreen,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
                   Expanded(
-                    child: Text(widget.title, style: AppTextStyles.cardTitle),
+                    child: Text(
+                      widget.title,
+                      style: AppTextStyles.cardTitle,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Icon(
@@ -296,32 +352,20 @@ class _FAQItemState extends State<_FAQItem> {
             ),
           ),
 
-          // ── Expanded body ──────────────────────────────────────────────
-          if (_expanded)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              decoration: const BoxDecoration(
-                color: AppColors.mintGreen,
-                borderRadius: BorderRadius.vertical(
-                  bottom: Radius.circular(14),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 1,
-                    margin: const EdgeInsets.only(bottom: 12),
-                    color: AppColors.primaryGreen.withValues(alpha: 0.2),
-                  ),
-                  Text(
-                    widget.description,
-                    style: AppTextStyles.cardSubtitle,
-                  ),
-                ],
+          // ── Body (terbuka) ───────────────────────────────────────────
+          if (_expanded) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Divider(height: 1, thickness: 1, color: AppColors.sliderTrack),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Text(
+                widget.description,
+                style: AppTextStyles.cardSubtitle.copyWith(height: 1.6),
               ),
             ),
+          ],
         ],
       ),
     );

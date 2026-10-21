@@ -23,16 +23,6 @@ class _DeteksiScreenState extends State<DeteksiScreen>
   bool _permissionDenied = false;
   File? _capturedImage;
 
-  // Camera preview aspect ratio – stored so the captured photo can be
-  // displayed with the same crop as the live preview (no zoom difference).
-  double? _previewAspectRatio;
-
-  // Sensor orientation (0/90/180/270). 90 or 270 means the preview is
-  // rotated 90° on screen, so the on-screen aspect ratio is the inverse
-  // of value.aspectRatio.
-  int? _sensorOrientation;
-
-  // Simulated detection state – in production replace with real ML
   bool _showDetection = false;
 
   @override
@@ -46,7 +36,6 @@ class _DeteksiScreenState extends State<DeteksiScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final ctrl = _controller;
     if (ctrl == null || !ctrl.value.isInitialized) return;
-
     if (state == AppLifecycleState.inactive) {
       ctrl.dispose();
     } else if (state == AppLifecycleState.resumed) {
@@ -60,7 +49,6 @@ class _DeteksiScreenState extends State<DeteksiScreen>
       if (mounted) setState(() => _permissionDenied = true);
       return;
     }
-
     try {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) return;
@@ -78,12 +66,9 @@ class _DeteksiScreenState extends State<DeteksiScreen>
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
     _controller = ctrl;
-
     try {
       await ctrl.initialize();
       await ctrl.lockCaptureOrientation(DeviceOrientation.portraitUp);
-      _previewAspectRatio = ctrl.value.aspectRatio;
-      _sensorOrientation = ctrl.description.sensorOrientation;
       if (mounted) setState(() => _isInitialized = true);
     } catch (e) {
       debugPrint('Controller init error: $e');
@@ -92,14 +77,12 @@ class _DeteksiScreenState extends State<DeteksiScreen>
 
   Future<void> _capturePhoto() async {
     final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized || ctrl.value.isTakingPicture) {
-      return;
-    }
+    if (ctrl == null || !ctrl.value.isInitialized || ctrl.value.isTakingPicture) return;
     try {
       final xFile = await ctrl.takePicture();
       setState(() {
         _capturedImage = File(xFile.path);
-        _showDetection = true; // simulate detection result
+        _showDetection = true;
       });
     } catch (e) {
       debugPrint('Capture error: $e');
@@ -131,78 +114,87 @@ class _DeteksiScreenState extends State<DeteksiScreen>
     super.dispose();
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
+  // ── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    // Bottom nav bar is overlaid via Stack in HomeScreen; reserve space so
-    // the capture / gallery / history buttons are not hidden behind it.
     final navBarSpace = MediaQuery.of(context).padding.bottom + 84;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D2018),
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            // ── Status bar
-            _StatusBar(
-              lightOk: _isInitialized,
-              distanceHint: _isInitialized ? null : 'Menginisialisasi...',
-            ),
+      body: Stack(
+        children: [
+          // ── Kamera / gambar memenuhi seluruh layar ──────────────────────
+          Positioned.fill(
+            child: _buildFullScreenCamera(),
+          ),
 
-            // ── Hint chip
-            const SizedBox(height: 16),
-            _HintChip(
-              label: _capturedImage != null
-                  ? 'Hasil Deteksi'
-                  : 'Arahkan ke Daun Sakit',
-            ),
-            const SizedBox(height: 16),
+          // ── Overlay UI di atas kamera ───────────────────────────────────
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // Ruang kosong atas agar viewfinder tidak terlalu ke atas
+                const SizedBox(height: 16),
 
-            // ── Camera / image area  ────────────────────────────────────────
-            Expanded(
-              child: _buildCameraArea(),
-            ),
+                // ── Viewfinder brackets ditengah layar ──────────────────
+                Expanded(
+                  child: _buildViewfinderOverlay(),
+                ),
 
-            // ── Bottom controls  ────────────────────────────────────────────
-            const SizedBox(height: 12),
-            _BottomControls(
-              onCapture: _capturedImage != null ? _reset : _capturePhoto,
-              onGallery: _pickFromGallery,
-              isCaptured: _capturedImage != null,
+                // ── Bottom controls ─────────────────────────────────────
+                const SizedBox(height: 12),
+                _BottomControls(
+                  onCapture: _capturedImage != null ? _reset : _capturePhoto,
+                  onGallery: _pickFromGallery,
+                  isCaptured: _capturedImage != null,
+                ),
+                SizedBox(height: navBarSpace),
+              ],
             ),
-            SizedBox(height: navBarSpace),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildCameraArea() {
+  // Kamera / foto mengisi seluruh layar dengan BoxFit.cover
+  Widget _buildFullScreenCamera() {
+    final ctrl = _controller;
+
+    // Gambar yang sudah diambil
+    if (_capturedImage != null) {
+      return Image.file(
+        _capturedImage!,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+      );
+    }
+
+    // Izin kamera ditolak
+    if (_permissionDenied) {
+      return const _CameraPlaceholder(
+        icon: Icons.no_photography_outlined,
+        message: 'Izin kamera ditolak.\nBuka Pengaturan untuk mengaktifkan.',
+      );
+    }
+
+    // Kamera belum siap
+    if (!_isInitialized || ctrl == null) {
+      return const _CameraPlaceholder(
+        icon: Icons.camera_alt_outlined,
+        message: 'Memulai kamera...',
+        showLoader: true,
+      );
+    }
+
+    // Live preview — cover sizing agar tidak gepeng
+    final rawRatio = ctrl.value.aspectRatio;
+    final sensor = ctrl.description.sensorOrientation;
+    final isRotated = sensor == 90 || sensor == 270;
+    final cameraRatio = isRotated ? 1 / rawRatio : rawRatio;
+
     return LayoutBuilder(builder: (context, constraints) {
-      final ctrl = _controller;
-
-      // Use the camera's preview aspect ratio for BOTH live preview and
-      // captured image so they show the exact same crop — no zoom
-      // difference between before and after taking a photo.
-      //
-      // value.aspectRatio is the sensor coordinate-space ratio (often
-      // landscape, e.g. 1920/1080).  For back/front cameras with
-      // sensorOrientation 90 or 270, the preview is rotated 90° on
-      // screen, so the on-screen ratio is the INVERSE (portrait).
-      final rawRatio = (ctrl != null && ctrl.value.isInitialized)
-          ? ctrl.value.aspectRatio
-          : (_previewAspectRatio ?? 3 / 4);
-
-      final sensor = (ctrl != null && ctrl.value.isInitialized)
-          ? ctrl.description.sensorOrientation
-          : (_sensorOrientation ?? 90);
-
-      final isRotated = sensor == 90 || sensor == 270;
-      final cameraRatio = isRotated ? 1 / rawRatio : rawRatio;
-
-      // Compute "cover" dimensions: fill the box while keeping the
-      // camera's aspect ratio, overflowing the excess for ClipRRect.
       final containerRatio = constraints.maxWidth / constraints.maxHeight;
       final double coverW;
       final double coverH;
@@ -213,176 +205,44 @@ class _DeteksiScreenState extends State<DeteksiScreen>
         coverW = constraints.maxWidth;
         coverH = constraints.maxWidth / cameraRatio;
       }
-
-      // Live preview or captured photo both use the cover-sized box.
-      // Placeholders (loading / permission denied) fill the box directly.
-      final hasContent = _capturedImage != null ||
-          (ctrl != null && ctrl.value.isInitialized && !_permissionDenied);
-
-      return Stack(
-        alignment: Alignment.center,
-        children: [
-          // ── Camera preview / captured image ────────────────────────────
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: SizedBox(
-              width: constraints.maxWidth,
-              height: constraints.maxHeight,
-              child: hasContent
-                  ? Center(
-                      child: SizedBox(
-                        width: coverW,
-                        height: coverH,
-                        child: _buildPreview(),
-                      ),
-                    )
-                  : _buildPreview(),
-            ),
+      return ClipRect(
+        child: OverflowBox(
+          maxWidth: double.infinity,
+          maxHeight: double.infinity,
+          child: SizedBox(
+            width: coverW,
+            height: coverH,
+            child: CameraPreview(ctrl),
           ),
-
-          // ── Viewfinder corner brackets ──────────────────────────────────
-          if (_capturedImage == null)
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: CustomPaint(painter: _CornerPainter()),
-              ),
-            ),
-
-          // ── Detection overlay (after capture) ──────────────────────────
-          if (_showDetection && _capturedImage != null)
-            Positioned(
-              bottom: constraints.maxHeight * 0.28,
-              left: constraints.maxWidth * 0.22,
-              child: _DetectionBox(),
-            ),
-        ],
+        ),
       );
     });
   }
 
-  Widget _buildPreview() {
-    // Show captured image
-    if (_capturedImage != null) {
-      return Image.file(
-        _capturedImage!,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-      );
-    }
-
-    // Permission denied
-    if (_permissionDenied) {
-      return const _CameraPlaceholder(
-        icon: Icons.no_photography_outlined,
-        message: 'Izin kamera ditolak.\nBuka Pengaturan untuk mengaktifkan.',
-      );
-    }
-
-    // Not yet initialised
-    if (!_isInitialized || _controller == null) {
-      return const _CameraPlaceholder(
-        icon: Icons.camera_alt_outlined,
-        message: 'Memulai kamera...',
-        showLoader: true,
-      );
-    }
-
-    // Live camera preview (fallback – normally handled by _buildCameraArea)
-    return CameraPreview(_controller!);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Status Bar
-// ─────────────────────────────────────────────────────────────────────────────
-class _StatusBar extends StatelessWidget {
-  final bool lightOk;
-  final String? distanceHint;
-
-  const _StatusBar({required this.lightOk, this.distanceHint});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  // Hanya corner brackets + detection overlay di atas kamera
+  Widget _buildViewfinderOverlay() {
+    return LayoutBuilder(builder: (context, constraints) {
+      return Stack(
         children: [
-          _StatusChip(
-            color: lightOk
-                ? const Color(0xFF4ADE80)
-                : const Color(0xFFFBBF24),
-            label: lightOk ? 'Cahaya: Baik' : 'Cahaya: Memeriksa',
-          ),
-          _StatusChip(
-            color: const Color(0xFFFBBF24),
-            label: distanceHint ?? 'Jarak: Dekatkan 10 cm',
-          ),
+          // Corner brackets hijau
+          if (_capturedImage == null)
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: CustomPaint(painter: _CornerPainter()),
+              ),
+            ),
+
+          // Detection overlay setelah foto
+          if (_showDetection && _capturedImage != null)
+            Positioned(
+              bottom: constraints.maxHeight * 0.28,
+              left: constraints.maxWidth * 0.22,
+              child: const _DetectionBox(),
+            ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  final Color color;
-  final String label;
-
-  const _StatusChip({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-            fontFamily: 'Plus Jakarta Sans',
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hint Chip
-// ─────────────────────────────────────────────────────────────────────────────
-class _HintChip extends StatelessWidget {
-  final String label;
-
-  const _HintChip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.primaryGreen,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 14,
-          fontFamily: 'Plus Jakarta Sans',
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -408,8 +268,7 @@ class _CornerPainter extends CustomPainter {
       Path()
         ..moveTo(0, len)
         ..lineTo(0, r)
-        ..arcToPoint(const Offset(r, 0),
-            radius: const Radius.circular(r))
+        ..arcToPoint(const Offset(r, 0), radius: const Radius.circular(r))
         ..lineTo(len, 0),
       paint,
     );
@@ -436,8 +295,7 @@ class _CornerPainter extends CustomPainter {
       Path()
         ..moveTo(w - len, h)
         ..lineTo(w - r, h)
-        ..arcToPoint(Offset(w, h - r),
-            radius: const Radius.circular(r))
+        ..arcToPoint(Offset(w, h - r), radius: const Radius.circular(r))
         ..lineTo(w, h - len),
       paint,
     );
