@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/tflite_service.dart';
 import '../theme/app_colors.dart';
+import 'hasil_deteksi_screen.dart';
 
 class DeteksiScreen extends StatefulWidget {
   const DeteksiScreen({super.key});
@@ -21,15 +23,19 @@ class _DeteksiScreenState extends State<DeteksiScreen>
   List<CameraDescription> _cameras = [];
   bool _isInitialized = false;
   bool _permissionDenied = false;
-  File? _capturedImage;
 
-  bool _showDetection = false;
+  /// true saat sedang menjalankan inferensi model
+  bool _isAnalyzing = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initCamera();
+    // Muat model di background agar siap saat user menekan capture
+    TfliteService.instance.load().catchError(
+      (e) => debugPrint('[TFLite] Gagal memuat model: $e'),
+    );
   }
 
   @override
@@ -75,36 +81,68 @@ class _DeteksiScreenState extends State<DeteksiScreen>
     }
   }
 
-  Future<void> _capturePhoto() async {
+  // ── Capture + Analisis ───────────────────────────────────────────────────
+
+  Future<void> _captureAndAnalyze() async {
     final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized || ctrl.value.isTakingPicture) return;
+    if (ctrl == null ||
+        !ctrl.value.isInitialized ||
+        ctrl.value.isTakingPicture ||
+        _isAnalyzing) {
+      return;
+    }
+
+    setState(() => _isAnalyzing = true);
+
     try {
       final xFile = await ctrl.takePicture();
-      setState(() {
-        _capturedImage = File(xFile.path);
-        _showDetection = true;
-      });
+      await _runAnalysis(File(xFile.path));
     } catch (e) {
       debugPrint('Capture error: $e');
+      if (mounted) setState(() => _isAnalyzing = false);
     }
   }
 
   Future<void> _pickFromGallery() async {
+    if (_isAnalyzing) return;
     final picker = ImagePicker();
     final xFile = await picker.pickImage(source: ImageSource.gallery);
-    if (xFile != null && mounted) {
-      setState(() {
-        _capturedImage = File(xFile.path);
-        _showDetection = true;
-      });
-    }
+    if (xFile == null || !mounted) return;
+
+    setState(() => _isAnalyzing = true);
+    await _runAnalysis(File(xFile.path));
   }
 
-  void _reset() {
-    setState(() {
-      _capturedImage = null;
-      _showDetection = false;
-    });
+  /// Jalankan TFLite inference lalu navigasi ke layar hasil
+  Future<void> _runAnalysis(File imageFile) async {
+    try {
+      final result = await TfliteService.instance.classify(imageFile);
+
+      if (!mounted) return;
+
+      // Navigasi ke layar hasil — kamera tetap berjalan di background
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => HasilDeteksiScreen(
+            imageFile: imageFile,
+            result: result,
+            plantName: 'Sansevieria',
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[TFLite] Analisis gagal: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Analisis gagal: ${e.toString()}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isAnalyzing = false);
+    }
   }
 
   @override
@@ -115,6 +153,7 @@ class _DeteksiScreenState extends State<DeteksiScreen>
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final navBarSpace = MediaQuery.of(context).padding.bottom + 84;
@@ -123,55 +162,42 @@ class _DeteksiScreenState extends State<DeteksiScreen>
       backgroundColor: const Color(0xFF0D2018),
       body: Stack(
         children: [
-          // ── Kamera / gambar memenuhi seluruh layar ──────────────────────
-          Positioned.fill(
-            child: _buildFullScreenCamera(),
-          ),
+          // ── Kamera memenuhi seluruh layar ──────────────────────────────
+          Positioned.fill(child: _buildFullScreenCamera()),
 
           // ── Overlay UI di atas kamera ───────────────────────────────────
           SafeArea(
             bottom: false,
             child: Column(
               children: [
-                // Ruang kosong atas agar viewfinder tidak terlalu ke atas
                 const SizedBox(height: 16),
 
-                // ── Viewfinder brackets ditengah layar ──────────────────
-                Expanded(
-                  child: _buildViewfinderOverlay(),
-                ),
+                // Viewfinder brackets
+                Expanded(child: _buildViewfinderOverlay()),
 
-                // ── Bottom controls ─────────────────────────────────────
                 const SizedBox(height: 12),
+
+                // Bottom controls
                 _BottomControls(
-                  onCapture: _capturedImage != null ? _reset : _capturePhoto,
+                  onCapture: _captureAndAnalyze,
                   onGallery: _pickFromGallery,
-                  isCaptured: _capturedImage != null,
+                  isAnalyzing: _isAnalyzing,
                 ),
                 SizedBox(height: navBarSpace),
               ],
             ),
           ),
+
+          // ── Loading overlay selama inferensi ────────────────────────────
+          if (_isAnalyzing) _AnalyzingOverlay(),
         ],
       ),
     );
   }
 
-  // Kamera / foto mengisi seluruh layar dengan BoxFit.cover
   Widget _buildFullScreenCamera() {
     final ctrl = _controller;
 
-    // Gambar yang sudah diambil
-    if (_capturedImage != null) {
-      return Image.file(
-        _capturedImage!,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-      );
-    }
-
-    // Izin kamera ditolak
     if (_permissionDenied) {
       return const _CameraPlaceholder(
         icon: Icons.no_photography_outlined,
@@ -179,7 +205,6 @@ class _DeteksiScreenState extends State<DeteksiScreen>
       );
     }
 
-    // Kamera belum siap
     if (!_isInitialized || ctrl == null) {
       return const _CameraPlaceholder(
         icon: Icons.camera_alt_outlined,
@@ -219,30 +244,79 @@ class _DeteksiScreenState extends State<DeteksiScreen>
     });
   }
 
-  // Hanya corner brackets + detection overlay di atas kamera
   Widget _buildViewfinderOverlay() {
     return LayoutBuilder(builder: (context, constraints) {
       return Stack(
         children: [
           // Corner brackets hijau
-          if (_capturedImage == null)
-            Positioned.fill(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: CustomPaint(painter: _CornerPainter()),
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: CustomPaint(painter: _CornerPainter()),
+            ),
+          ),
+
+          // Label instruksi di bawah viewfinder
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Arahkan kamera ke daun tanaman',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
             ),
-
-          // Detection overlay setelah foto
-          if (_showDetection && _capturedImage != null)
-            Positioned(
-              bottom: constraints.maxHeight * 0.28,
-              left: constraints.maxWidth * 0.22,
-              child: const _DetectionBox(),
-            ),
+          ),
         ],
       );
     });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Analyzing overlay — ditampilkan saat inferensi berjalan
+// ─────────────────────────────────────────────────────────────────────────────
+class _AnalyzingOverlay extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.65),
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(
+              color: AppColors.primaryGreen,
+              strokeWidth: 3,
+            ),
+            SizedBox(height: 18),
+            Text(
+              'Menganalisis gambar...',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontFamily: 'Plus Jakarta Sans',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -306,50 +380,7 @@ class _CornerPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Detection Overlay Box
-// ─────────────────────────────────────────────────────────────────────────────
-class _DetectionBox extends StatelessWidget {
-  const _DetectionBox();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 90,
-          height: 90,
-          decoration: BoxDecoration(
-            color: const Color(0xFFD97706).withValues(alpha: 0.35),
-            border: Border.all(color: const Color(0xFFF59E0B), width: 2.5),
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF59E0B),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Text(
-            'Area infeksi',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontFamily: 'Plus Jakarta Sans',
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Camera Placeholder (loading / no permission)
+// Camera Placeholder
 // ─────────────────────────────────────────────────────────────────────────────
 class _CameraPlaceholder extends StatelessWidget {
   final IconData icon;
@@ -397,12 +428,12 @@ class _CameraPlaceholder extends StatelessWidget {
 class _BottomControls extends StatelessWidget {
   final VoidCallback onCapture;
   final VoidCallback onGallery;
-  final bool isCaptured;
+  final bool isAnalyzing;
 
   const _BottomControls({
     required this.onCapture,
     required this.onGallery,
-    required this.isCaptured,
+    required this.isAnalyzing,
   });
 
   @override
@@ -419,35 +450,43 @@ class _BottomControls extends StatelessWidget {
               // Galeri
               _CircleIconButton(
                 icon: Icons.image_outlined,
-                onTap: onGallery,
+                onTap: isAnalyzing ? null : onGallery,
                 tooltip: 'Galeri',
               ),
 
-              // Capture / Reset
+              // Capture
               GestureDetector(
-                onTap: onCapture,
+                onTap: isAnalyzing ? null : onCapture,
                 child: Container(
                   width: 68,
                   height: 68,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isCaptured
-                        ? const Color(0xFF55645C)
+                    color: isAnalyzing
+                        ? AppColors.mutedGreen
                         : AppColors.primaryGreen,
                     border: Border.all(color: Colors.white, width: 3),
                   ),
-                  child: Icon(
-                    isCaptured ? Icons.refresh : Icons.camera_alt,
-                    color: Colors.white,
-                    size: 28,
-                  ),
+                  child: isAnalyzing
+                      ? const Padding(
+                          padding: EdgeInsets.all(18),
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.camera_alt,
+                          color: Colors.white,
+                          size: 28,
+                        ),
                 ),
               ),
 
-              // Riwayat
+              // Riwayat (placeholder)
               _CircleIconButton(
                 icon: Icons.history,
-                onTap: () {},
+                onTap: isAnalyzing ? null : () {},
                 tooltip: 'Riwayat',
               ),
             ],
@@ -470,7 +509,7 @@ class _BottomControls extends StatelessWidget {
 
 class _CircleIconButton extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String tooltip;
 
   const _CircleIconButton({
@@ -490,12 +529,16 @@ class _CircleIconButton extends StatelessWidget {
           height: 50,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.1),
+            color: Colors.white.withValues(alpha: onTap != null ? 0.1 : 0.05),
             border: Border.all(
               color: Colors.white.withValues(alpha: 0.25),
             ),
           ),
-          child: Icon(icon, color: Colors.white, size: 22),
+          child: Icon(
+            icon,
+            color: Colors.white.withValues(alpha: onTap != null ? 1.0 : 0.4),
+            size: 22,
+          ),
         ),
       ),
     );
