@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/local_storage.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
@@ -10,7 +11,27 @@ class SiramManualCard extends StatefulWidget {
 }
 
 class _SiramManualCardState extends State<SiramManualCard> {
+  final _storage = LocalStorage.instance;
   bool _isOn = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadState();
+  }
+
+  /// Baca state terakhir dari SharedPreferences saat widget pertama kali dibuat
+  Future<void> _loadState() async {
+    final saved = await _storage.getSiramManual();
+    if (mounted) setState(() { _isOn = saved; _loading = false; });
+  }
+
+  /// Simpan perubahan toggle ke SharedPreferences
+  Future<void> _onToggle(bool val) async {
+    setState(() => _isOn = val);
+    await _storage.setSiramManual(val);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,15 +71,31 @@ class _SiramManualCardState extends State<SiramManualCard> {
               ],
             ),
           ),
-          // Toggle
-          Switch(
-            value: _isOn,
-            onChanged: (val) => setState(() => _isOn = val),
-            activeThumbColor: Colors.white,
-            activeTrackColor: AppColors.toggleActive,
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: AppColors.toggleInactive,
-          ),
+          // Toggle — disabled saat masih loading agar tidak flicker
+          if (_loading)
+            const SizedBox(
+              width: 48,
+              height: 28,
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primaryGreen,
+                  ),
+                ),
+              ),
+            )
+          else
+            Switch(
+              value: _isOn,
+              onChanged: _onToggle,
+              activeThumbColor: Colors.white,
+              activeTrackColor: AppColors.toggleActive,
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: AppColors.toggleInactive,
+            ),
         ],
       ),
     );
