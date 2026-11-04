@@ -27,6 +27,9 @@ class _DeteksiScreenState extends State<DeteksiScreen>
   /// true saat sedang menjalankan inferensi model
   bool _isAnalyzing = false;
 
+  /// Disimpan agar kamera bisa dinyalakan lagi setelah aplikasi kembali aktif.
+  CameraDescription? _activeDesc;
+
   @override
   void initState() {
     super.initState();
@@ -40,12 +43,17 @@ class _DeteksiScreenState extends State<DeteksiScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final ctrl = _controller;
-    if (ctrl == null || !ctrl.value.isInitialized) return;
+    final desc = _activeDesc;
+    if (desc == null) return;
     if (state == AppLifecycleState.inactive) {
-      ctrl.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      _initCameraController(ctrl.description);
+      final old = _controller;
+      _controller = null;
+      if (mounted) setState(() => _isInitialized = false);
+      old?.dispose();
+    } else if (state == AppLifecycleState.resumed &&
+        !_isInitialized &&
+        !_permissionDenied) {
+      _initCameraController(desc);
     }
   }
 
@@ -72,10 +80,11 @@ class _DeteksiScreenState extends State<DeteksiScreen>
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
     _controller = ctrl;
+    _activeDesc = desc;
     try {
       await ctrl.initialize();
       await ctrl.lockCaptureOrientation(DeviceOrientation.portraitUp);
-      if (mounted) setState(() => _isInitialized = true);
+      if (mounted && _controller == ctrl) setState(() => _isInitialized = true);
     } catch (e) {
       debugPrint('Controller init error: $e');
     }
@@ -270,7 +279,7 @@ class _DeteksiScreenState extends State<DeteksiScreen>
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
-                  'Arahkan kamera ke daun tanaman',
+                  'Arahkan ke satu daun, jarak ±20–30 cm',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 12,

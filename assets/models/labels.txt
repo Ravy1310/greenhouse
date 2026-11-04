@@ -1,3 +1,4 @@
+Not_Sansevieria
 Snake_Plant_Anthracnose
 Snake_Plant_Healthy
-Snake_Plant_Leaf_Whitering
+Snake_Plant_Leaf_Withering
