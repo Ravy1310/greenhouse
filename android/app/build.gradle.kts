@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+// Tambahkan bagian ini untuk memperbaiki error CallbackToFutureAdapter
+dependencies {
+    implementation("androidx.concurrent:concurrent-futures:1.1.0")
+}
