@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -60,8 +59,6 @@ class TfliteService {
   Interpreter? _interpreter;
   late List<String> _classes;
   late int _size;
-  String? _negClass;
-  double _threshold = 0.0;
   Future<void>? _loading;
 
   /// Aman dipanggil berkali-kali; model hanya dimuat sekali.
@@ -73,8 +70,6 @@ class TfliteService {
           as Map<String, dynamic>;
       _classes = List<String>.from(meta['class_names'] as List);
       _size = (meta['img_size'] as num).toInt();
-      _negClass = meta['neg_class'] as String?; // opsional
-      _threshold = (meta['conf_threshold'] as num?)?.toDouble() ?? 0.0; // opsional
 
       final interpreter = await Interpreter.fromAsset(_modelAsset);
 
@@ -90,8 +85,7 @@ class TfliteService {
       }
 
       _interpreter = interpreter;
-      debugPrint('[TFLite] Model dimuat: $_classes | input $inShape | output $outShape '
-          '| neg=$_negClass | ambang=$_threshold');
+      debugPrint('[TFLite] Model dimuat: $_classes | input $inShape | output $outShape');
     } catch (e) {
       _loading = null; // izinkan percobaan ulang
       rethrow;
@@ -124,24 +118,10 @@ class TfliteService {
     for (var i = 1; i < probs.length; i++) {
       if (probs[i] > probs[top]) top = i;
     }
-    final topName = _classes[top];
-    final conf = probs[top];
 
-    var label = DiseaseResult.labelFromString(topName);
-    var uncertain = false;
-    if (_negClass != null && topName == _negClass) {
-      label = DiseaseLabel.notSansevieria; // model sendiri memilih "bukan daun"
-    } else if (conf < _threshold) {
-      label = DiseaseLabel.notSansevieria; // keyakinan di bawah ambang
-      uncertain = true;
-    }
-
-    final negIdx = _negClass == null ? -1 : _classes.indexOf(_negClass!);
     return DiseaseResult(
-      label: label,
-      confidence: conf,
-      uncertain: uncertain,
-      pNeg: negIdx >= 0 ? probs[negIdx] : null,
+      label: DiseaseResult.labelFromString(_classes[top]),
+      confidence: probs[top],
       scores: scores,
     );
   }

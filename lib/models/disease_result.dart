@@ -1,7 +1,7 @@
-/// Label hasil klasifikasi model (3 kelas)
+/// Label hasil klasifikasi model (3 kelas dari dataset).
 enum DiseaseLabel {
-  anthracnose, // Snake_Plant_Anthracnose
-  healthy, // Snake_Plant_Healthy
+  anthracnose,   // Snake_Plant_Anthracnose
+  healthy,       // Snake_Plant_Healthy
   leafWithering, // Snake_Plant_Leaf_Withering
 }
 
@@ -71,7 +71,7 @@ class DiseaseResult {
         return 'Model cukup yakin, tetapi masih ada kemungkinan lain. Lihat rincian probabilitas dan ulangi foto dari jarak dekat bila ragu.';
       case ConfidenceLevel.low:
         return 'Keyakinan rendah, hasil kurang dapat diandalkan. Ambil ulang foto satu daun dari jarak ±20–30 cm dengan cahaya cukup dan latar sederhana. '
-            'Perlu diingat, model tidak mengenali foto non-daun: benda lain pun tetap diberi salah satu label.';
+            'Perlu diingat, model hanya mengenali 3 kondisi: Anthracnose, Layu Daun, dan Sehat.';
     }
   }
 
@@ -104,14 +104,11 @@ class DiseaseResult {
   // ── Raw label → enum ───────────────────────────────────────────────────────
 
   /// Mengubah nama kelas dari meta.json menjadi enum.
-  /// Melempar [FormatException] bila nama kelas tidak dikenal, agar ketidakcocokan
-  /// model dan aplikasi ketahuan saat model dimuat, bukan menampilkan label keliru.
+  /// Melempar [FormatException] bila nama kelas tidak dikenal.
   static DiseaseLabel labelFromString(String raw) {
     final s = raw.trim().toLowerCase();
     if (s.contains('anthracnose')) return DiseaseLabel.anthracnose;
-    if (s.contains('whiter') || s.contains('wither')) {
-      return DiseaseLabel.leafWithering;
-    }
+    if (s.contains('whiter') || s.contains('wither')) return DiseaseLabel.leafWithering;
     if (s.contains('healthy')) return DiseaseLabel.healthy;
     throw FormatException('Nama kelas tidak dikenal: "$raw"');
   }
