@@ -1,6 +1,5 @@
-/// Label hasil klasifikasi model
+/// Label hasil klasifikasi model (3 kelas)
 enum DiseaseLabel {
-  notSansevieria, // Not_Sansevieria — bukan daun / tidak yakin
   anthracnose, // Snake_Plant_Anthracnose
   healthy, // Snake_Plant_Healthy
   leafWithering, // Snake_Plant_Leaf_Withering
@@ -26,17 +25,11 @@ class DiseaseResult {
   /// Bila selisih dua kelas teratas kurang dari ini, hasil dianggap "hampir seimbang".
   static const double ambiguousMargin = 0.15;
 
+  /// Kelas dengan probabilitas tertinggi.
   final DiseaseLabel label;
 
-  /// Probabilitas kelas teratas model (0.0 – 1.0).
+  /// Probabilitas kelas teratas (0.0 – 1.0).
   final double confidence;
-
-  /// True bila label = notSansevieria karena keyakinan di bawah ambang
-  /// (bukan karena model memilih kelas Not_Sansevieria).
-  final bool uncertain;
-
-  /// Probabilitas mentah kelas Not_Sansevieria (null bila model tidak punya kelas ini).
-  final double? pNeg;
 
   /// Probabilitas semua kelas, urut dari yang terbesar.
   final List<ClassScore> scores;
@@ -44,8 +37,6 @@ class DiseaseResult {
   const DiseaseResult({
     required this.label,
     required this.confidence,
-    this.uncertain = false,
-    this.pNeg,
     this.scores = const [],
   });
 
@@ -79,12 +70,10 @@ class DiseaseResult {
       case ConfidenceLevel.medium:
         return 'Model cukup yakin, tetapi masih ada kemungkinan lain. Lihat rincian probabilitas dan ulangi foto dari jarak dekat bila ragu.';
       case ConfidenceLevel.low:
-        return 'Keyakinan rendah, hasil kurang dapat diandalkan. Ambil ulang foto satu daun dari jarak ±20–30 cm dengan cahaya cukup dan latar sederhana.';
+        return 'Keyakinan rendah, hasil kurang dapat diandalkan. Ambil ulang foto satu daun dari jarak ±20–30 cm dengan cahaya cukup dan latar sederhana. '
+            'Perlu diingat, model tidak mengenali foto non-daun: benda lain pun tetap diberi salah satu label.';
     }
   }
-
-  /// Dugaan terkuat model (sebelum aturan "tidak yakin" diterapkan).
-  ClassScore? get topGuess => scores.isEmpty ? null : scores.first;
 
   /// True bila dua kelas teratas hampir sama kuat.
   bool get isAmbiguous =>
@@ -93,22 +82,16 @@ class DiseaseResult {
 
   // ── Display helpers ────────────────────────────────────────────────────────
 
-  String get displayName => nameOf(label, uncertain: uncertain);
+  String get displayName => nameOf(label);
 
   /// Label chip di atas gambar, mis. "Anthracnose 96%"
   String get chipLabel => '$displayName $confidencePercent';
 
   bool get isHealthy => label == DiseaseLabel.healthy;
 
-  /// True jika gambar tidak dikenali sebagai daun sansevieria
-  /// atau keyakinan di bawah ambang
-  bool get isUnrecognized => label == DiseaseLabel.notSansevieria;
-
   /// Nama tampilan untuk sebuah label.
-  static String nameOf(DiseaseLabel label, {bool uncertain = false}) {
+  static String nameOf(DiseaseLabel label) {
     switch (label) {
-      case DiseaseLabel.notSansevieria:
-        return uncertain ? 'Tidak yakin' : 'Bukan Sansevieria';
       case DiseaseLabel.anthracnose:
         return 'Anthracnose';
       case DiseaseLabel.healthy:
@@ -120,23 +103,21 @@ class DiseaseResult {
 
   // ── Raw label → enum ───────────────────────────────────────────────────────
 
+  /// Mengubah nama kelas dari meta.json menjadi enum.
+  /// Melempar [FormatException] bila nama kelas tidak dikenal, agar ketidakcocokan
+  /// model dan aplikasi ketahuan saat model dimuat, bukan menampilkan label keliru.
   static DiseaseLabel labelFromString(String raw) {
     final s = raw.trim().toLowerCase();
-    if (s.contains('not_sansevieria') || s.contains('not sansevieria')) {
-      return DiseaseLabel.notSansevieria;
-    }
     if (s.contains('anthracnose')) return DiseaseLabel.anthracnose;
     if (s.contains('whiter') || s.contains('wither')) {
       return DiseaseLabel.leafWithering;
     }
     if (s.contains('healthy')) return DiseaseLabel.healthy;
-    // fallback — tidak dikenali
-    return DiseaseLabel.notSansevieria;
+    throw FormatException('Nama kelas tidak dikenal: "$raw"');
   }
 
   @override
   String toString() =>
       'DiseaseResult(label: $displayName, confidence: $confidencePercent, '
-      'level: $confidenceLevelText, uncertain: $uncertain, '
-      'pNeg: ${pNeg?.toStringAsFixed(3)})';
+      'level: $confidenceLevelText)';
 }

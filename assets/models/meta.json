@@ -1,12 +1,10 @@
 {
   "class_names": [
-    "Not_Sansevieria",
     "Snake_Plant_Anthracnose",
     "Snake_Plant_Healthy",
     "Snake_Plant_Leaf_Withering"
   ],
   "img_size": 224,
-  "neg_class": "Not_Sansevieria",
   "healthy_classes": [
     "Snake_Plant_Healthy"
   ],
@@ -14,6 +12,5 @@
     "Snake_Plant_Anthracnose",
     "Snake_Plant_Leaf_Withering"
   ],
-  "conf_threshold": 0.3,
   "input": "RGB float32 0-255, resize bilinear (tanpa crop), tanpa normalisasi"
 }
