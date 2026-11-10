@@ -492,18 +492,13 @@ class _BottomControls extends StatelessWidget {
                 ),
               ),
 
-              // Riwayat (placeholder)
-              _CircleIconButton(
-                icon: Icons.history,
-                onTap: isAnalyzing ? null : () {},
-                tooltip: 'Riwayat',
-              ),
+              // tombol riwayat dihapus
             ],
           ),
         ),
         const SizedBox(height: 10),
         const Text(
-          'Pindai · Galeri · Riwayat',
+          'Pindai · Galeri',
           style: TextStyle(
             color: AppColors.mutedGreen,
             fontSize: 12,
