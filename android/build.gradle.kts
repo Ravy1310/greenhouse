@@ -27,8 +27,10 @@ subprojects {
 // outside the project root (the pub-cache plugins); the :app module, whose
 // sources are inside android\, stays incremental.
 subprojects {
-    if (!projectDir.canonicalPath.startsWith(rootDir.canonicalPath)) {
-        extra["kotlin.incremental"] = "false"
+    if (name == "camera_android_camerax") {
+        plugins.withId("com.android.library") {
+            dependencies.add("implementation", "androidx.concurrent:concurrent-futures:1.2.0")
+        }
     }
 }
 
