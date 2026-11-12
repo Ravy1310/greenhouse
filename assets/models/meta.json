@@ -1,0 +1,16 @@
+{
+  "class_names": [
+    "Snake_Plant_Anthracnose",
+    "Snake_Plant_Healthy",
+    "Snake_Plant_Leaf_Withering"
+  ],
+  "img_size": 224,
+  "healthy_classes": [
+    "Snake_Plant_Healthy"
+  ],
+  "disease_classes": [
+    "Snake_Plant_Anthracnose",
+    "Snake_Plant_Leaf_Withering"
+  ],
+  "input": "RGB float32 0-255, resize bilinear (tanpa crop), tanpa normalisasi"
+}
