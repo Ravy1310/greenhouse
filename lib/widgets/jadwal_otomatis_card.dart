@@ -331,22 +331,23 @@ class _JadwalSheetState extends State<_JadwalSheet> {
 
   // ── Waktu & hari ──────────────────────────────────────────────────────────
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _time,
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: AppColors.primaryGreen,
-            onPrimary: Colors.white,
-            onSurface: AppColors.textPrimary,
-          ),
+  final picked = await showTimePicker(
+    context: context,
+    initialTime: _time,
+    initialEntryMode: TimePickerEntryMode.dialOnly, // menghilangkan tombol keyboard
+    builder: (context, child) => Theme(
+      data: Theme.of(context).copyWith(
+        colorScheme: const ColorScheme.light(
+          primary: AppColors.primaryGreen,
+          onPrimary: Colors.white,
+          onSurface: AppColors.textPrimary,
         ),
-        child: child!,
       ),
-    );
-    if (picked != null) setState(() => _time = picked);
-  }
+      child: child!,
+    ),
+  );
+  if (picked != null) setState(() => _time = picked);
+}
 
   String get _timeString {
     final h = _time.hour.toString().padLeft(2, '0');
