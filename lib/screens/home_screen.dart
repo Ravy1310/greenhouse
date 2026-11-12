@@ -45,8 +45,16 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AppColors.background,
       body: Column(
         children: [
-          // Fixed top header (only on Kontrol page)
-          if (_currentNavIndex == 0) const LoraHeader(),
+          // Header tetap di atas (hanya di halaman Kontrol), diturunkan
+          // di bawah status bar + jarak tambahan.
+          if (_currentNavIndex == 0)
+            const SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: LoraHeader(),
+              ),
+            ),
 
           Expanded(
             child: _currentNavIndex == 0

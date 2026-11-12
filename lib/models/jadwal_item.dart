@@ -5,12 +5,14 @@ class JadwalItem {
   TimeOfDay time;
   Set<int> days; // 0=Sen … 6=Min
   bool isOn;
+  int durasi; // menit (sketch: 1–120)
 
   JadwalItem({
     this.id,
     required this.time,
     required this.days,
     required this.isOn,
+    this.durasi = 5,
   });
 
   // ── Label helpers ──────────────────────────────────────────────────────────
@@ -39,7 +41,7 @@ class JadwalItem {
     return sorted.map((d) => _dayLabels[d]).join(', ');
   }
 
-  String get subtitle => '$periodLabel • $daysLabel';
+  String get subtitle => '$periodLabel • $daysLabel • $durasi mnt';
 
   // ── SQLite serialization ───────────────────────────────────────────────────
   /// Days stored as comma-separated integers, e.g. "0,1,2,3,4,5,6"
@@ -49,6 +51,7 @@ class JadwalItem {
         'minute': time.minute,
         'days_csv': (days.toList()..sort()).join(','),
         'is_on': isOn ? 1 : 0,
+        'durasi_menit': durasi,
       };
 
   factory JadwalItem.fromMap(Map<String, dynamic> map) {
@@ -65,6 +68,7 @@ class JadwalItem {
       ),
       days: days,
       isOn: (map['is_on'] as int) == 1,
+      durasi: (map['durasi_menit'] as int?) ?? 5,
     );
   }
 
@@ -73,11 +77,13 @@ class JadwalItem {
     TimeOfDay? time,
     Set<int>? days,
     bool? isOn,
+    int? durasi,
   }) =>
       JadwalItem(
         id: id ?? this.id,
         time: time ?? this.time,
         days: days ?? Set.from(this.days),
         isOn: isOn ?? this.isOn,
+        durasi: durasi ?? this.durasi,
       );
 }

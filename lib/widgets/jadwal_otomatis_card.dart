@@ -3,6 +3,8 @@ import '../models/jadwal_item.dart';
 import '../services/database_helper.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../services/mqtt_service.dart';
+import 'package:flutter/services.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Card
@@ -38,6 +40,7 @@ class _JadwalOtomatisCardState extends State<JadwalOtomatisCard> {
       final i = _jadwalList.indexWhere((j) => j.id == item.id);
       if (i != -1) _jadwalList[i] = updated;
     });
+    MqttService.instance.kirimJadwalDariDb();
   }
 
   Future<void> _saveNew(JadwalItem item) async {
@@ -47,6 +50,7 @@ class _JadwalOtomatisCardState extends State<JadwalOtomatisCard> {
       ..sort((a, b) => a.time.hour != b.time.hour
           ? a.time.hour.compareTo(b.time.hour)
           : a.time.minute.compareTo(b.time.minute)));
+    MqttService.instance.kirimJadwalDariDb();
   }
 
   Future<void> _saveEdit(JadwalItem updated) async {
@@ -58,11 +62,13 @@ class _JadwalOtomatisCardState extends State<JadwalOtomatisCard> {
           ? a.time.hour.compareTo(b.time.hour)
           : a.time.minute.compareTo(b.time.minute));
     });
+    MqttService.instance.kirimJadwalDariDb();
   }
 
   Future<void> _delete(JadwalItem item) async {
     await _db.delete(item.id!);
     setState(() => _jadwalList.removeWhere((j) => j.id == item.id));
+    MqttService.instance.kirimJadwalDariDb();
   }
 
   // ── Sheet helpers ──────────────────────────────────────────────────────────
@@ -87,6 +93,7 @@ class _JadwalOtomatisCardState extends State<JadwalOtomatisCard> {
         title: 'Edit Jadwal',
         initialTime: item.time,
         initialDays: Set.from(item.days),
+        initialDurasi: item.durasi,
         onSave: (edited) => _saveEdit(edited.copyWith(id: item.id, isOn: item.isOn)),
         onDelete: () => _confirmDelete(item),
       ),
@@ -264,6 +271,7 @@ class _JadwalSheet extends StatefulWidget {
   final String title;
   final TimeOfDay? initialTime;
   final Set<int>? initialDays;
+  final int? initialDurasi;
   final void Function(JadwalItem) onSave;
   final VoidCallback? onDelete;
 
@@ -272,6 +280,7 @@ class _JadwalSheet extends StatefulWidget {
     required this.onSave,
     this.initialTime,
     this.initialDays,
+    this.initialDurasi,
     this.onDelete,
   });
 
@@ -282,7 +291,9 @@ class _JadwalSheet extends StatefulWidget {
 class _JadwalSheetState extends State<_JadwalSheet> {
   late TimeOfDay _time;
   late Set<int> _days;
+  late final TextEditingController _durasiCtrl;
 
+  static const int _maxDurasi = 120; // batas di sketch.ino
   static const _dayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 
   @override
@@ -292,8 +303,33 @@ class _JadwalSheetState extends State<_JadwalSheet> {
     _days = widget.initialDays != null
         ? Set.from(widget.initialDays!)
         : {0, 1, 2, 3, 4, 5, 6};
+    // Jadwal baru: kosong (pemilik yang mengisi). Edit: tampilkan durasi lama.
+    _durasiCtrl =
+        TextEditingController(text: widget.initialDurasi?.toString() ?? '');
   }
 
+  @override
+  void dispose() {
+    _durasiCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Durasi ────────────────────────────────────────────────────────────────
+  int? get _durasi => int.tryParse(_durasiCtrl.text.trim());
+
+  bool get _durasiValid {
+    final d = _durasi;
+    return d != null && d >= 1 && d <= _maxDurasi;
+  }
+
+  String? get _durasiError {
+    if (_durasiCtrl.text.trim().isEmpty) return null; // belum diisi
+    return _durasiValid ? null : 'Isi antara 1 dan $_maxDurasi menit';
+  }
+
+  bool get _bisaSimpan => _days.isNotEmpty && _durasiValid;
+
+  // ── Waktu & hari ──────────────────────────────────────────────────────────
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
@@ -328,8 +364,14 @@ class _JadwalSheetState extends State<_JadwalSheet> {
   void _save() {
     // Tutup sheet dulu, baru callback — agar setState di parent bisa berjalan
     // saat widget card masih mounted.
+    final durasi = _durasi!;
     Navigator.pop(context);
-    widget.onSave(JadwalItem(time: _time, days: Set.from(_days), isOn: true));
+    widget.onSave(JadwalItem(
+      time: _time,
+      days: Set.from(_days),
+      isOn: true,
+      durasi: durasi,
+    ));
   }
 
   @override
@@ -343,160 +385,225 @@ class _JadwalSheetState extends State<_JadwalSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.fromLTRB(24, 0, 24, 24 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle
-          Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.sliderTrack,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
-          // Judul + tombol hapus
-          Row(
-            children: [
-              Expanded(
-                  child: Text(widget.title, style: AppTextStyles.sectionTitle)),
-              if (isEdit)
-                GestureDetector(
-                  onTap: widget.onDelete,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFEEEE),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.delete_outline, color: Colors.red, size: 16),
-                        SizedBox(width: 4),
-                        Text('Hapus',
-                            style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 12,
-                                fontFamily: 'Plus Jakarta Sans',
-                                fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.sliderTrack,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            isEdit
-                ? 'Ubah waktu atau hari penyiraman.'
-                : 'Tentukan waktu dan hari penyiraman otomatis.',
-            style: AppTextStyles.cardSubtitle,
-          ),
-          const SizedBox(height: 24),
-
-          // Pilih Waktu
-          const Text('Waktu', style: AppTextStyles.cardTitle),
-          const SizedBox(height: 10),
-          GestureDetector(
-            onTap: _pickTime,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 16),
-              decoration: BoxDecoration(
-                color: AppColors.mintGreen,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.access_time_rounded,
-                      color: AppColors.primaryGreen, size: 22),
-                  const SizedBox(width: 12),
-                  Text(_timeString,
-                      style: const TextStyle(
-                          color: AppColors.primaryGreen,
-                          fontSize: 22,
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  const Icon(Icons.chevron_right,
-                      color: AppColors.primaryGreen, size: 20),
-                ],
               ),
             ),
-          ),
-          const SizedBox(height: 24),
 
-          // Pilih Hari
-          const Text('Hari', style: AppTextStyles.cardTitle),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(7, (i) {
-              final selected = _days.contains(i);
-              return GestureDetector(
-                onTap: () => setState(() =>
-                    selected ? _days.remove(i) : _days.add(i)),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? AppColors.primaryGreen
-                        : AppColors.mintGreen,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      _dayLabels[i],
-                      style: TextStyle(
-                        color: selected ? Colors.white : AppColors.primaryGreen,
-                        fontSize: 11,
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontWeight: FontWeight.w700,
+            // Judul + tombol hapus
+            Row(
+              children: [
+                Expanded(
+                    child:
+                        Text(widget.title, style: AppTextStyles.sectionTitle)),
+                if (isEdit)
+                  GestureDetector(
+                    onTap: widget.onDelete,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEEEE),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.delete_outline,
+                              color: Colors.red, size: 16),
+                          SizedBox(width: 4),
+                          Text('Hapus',
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 12,
+                                  fontFamily: 'Plus Jakarta Sans',
+                                  fontWeight: FontWeight.w700)),
+                        ],
                       ),
                     ),
                   ),
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 8),
-          Text(_formattedDays, style: AppTextStyles.hint),
-          const SizedBox(height: 28),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isEdit
+                  ? 'Ubah waktu, hari, atau durasi penyiraman.'
+                  : 'Tentukan waktu, hari, dan durasi penyiraman otomatis.',
+              style: AppTextStyles.cardSubtitle,
+            ),
+            const SizedBox(height: 24),
 
-          // Tombol Simpan
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _days.isEmpty ? null : _save,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGreen,
-                disabledBackgroundColor: AppColors.sliderTrack,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                elevation: 0,
-              ),
-              child: Text(
-                isEdit ? 'Simpan Perubahan' : 'Simpan Jadwal',
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontWeight: FontWeight.w700),
+            // Pilih Waktu
+            const Text('Waktu', style: AppTextStyles.cardTitle),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: _pickTime,
+              child: Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.mintGreen,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time_rounded,
+                        color: AppColors.primaryGreen, size: 22),
+                    const SizedBox(width: 12),
+                    Text(_timeString,
+                        style: const TextStyle(
+                            color: AppColors.primaryGreen,
+                            fontSize: 22,
+                            fontFamily: 'Plus Jakarta Sans',
+                            fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    const Icon(Icons.chevron_right,
+                        color: AppColors.primaryGreen, size: 20),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+
+            // Pilih Hari
+            const Text('Hari', style: AppTextStyles.cardTitle),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(7, (i) {
+                final selected = _days.contains(i);
+                return GestureDetector(
+                  onTap: () => setState(
+                      () => selected ? _days.remove(i) : _days.add(i)),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? AppColors.primaryGreen
+                          : AppColors.mintGreen,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        _dayLabels[i],
+                        style: TextStyle(
+                          color:
+                              selected ? Colors.white : AppColors.primaryGreen,
+                          fontSize: 11,
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 8),
+            Text(_formattedDays, style: AppTextStyles.hint),
+            const SizedBox(height: 24),
+
+            // Durasi penyiraman — diisi sendiri oleh pemilik
+            const Text('Durasi penyiraman', style: AppTextStyles.cardTitle),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _durasiCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(3),
+              ],
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(
+                  color: AppColors.primaryGreen,
+                  fontSize: 22,
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontWeight: FontWeight.w700),
+              decoration: InputDecoration(
+                hintText: 'Masukkan durasi',
+                hintStyle: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 16,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w500),
+                suffixText: 'menit',
+                suffixStyle: const TextStyle(
+                    color: AppColors.primaryGreen,
+                    fontSize: 15,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w600),
+                errorText: _durasiError,
+                prefixIcon: const Icon(Icons.timer_outlined,
+                    color: AppColors.primaryGreen),
+                filled: true,
+                fillColor: AppColors.mintGreen,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(
+                      color: AppColors.primaryGreen, width: 1.5),
+                ),
+                errorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Colors.red, width: 1.2),
+                ),
+                focusedErrorBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Colors.red, width: 1.5),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text('Atur sendiri, antara 1 dan $_maxDurasi menit.',
+                style: AppTextStyles.hint),
+            const SizedBox(height: 28),
+
+            // Tombol Simpan
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _bisaSimpan ? _save : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryGreen,
+                  disabledBackgroundColor: AppColors.sliderTrack,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                  elevation: 0,
+                ),
+                child: Text(
+                  isEdit ? 'Simpan Perubahan' : 'Simpan Jadwal',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
