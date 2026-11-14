@@ -7,35 +7,30 @@ class InfoScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // SafeArea memastikan seluruh konten (termasuk saat di-scroll)
-    // selalu berada di bawah area status bar / notifikasi sistem.
-    return SafeArea(
-      bottom: false, // Bagian bawah dibiarkan normal (opsional, sesuaikan dengan kebutuhan)
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _WelcomeHeader(),
-            SizedBox(height: 20),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: _StepGuideSection(),
-            ),
-            SizedBox(height: 20),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: _FAQSection(),
-            ),
-            SizedBox(height: 24),
-          ],
-        ),
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          _WelcomeHeader(),
+          SizedBox(height: 20),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: _StepGuideSection(),
+          ),
+          SizedBox(height: 20),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: _FAQSection(),
+          ),
+          SizedBox(height: 24),
+        ],
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Welcome header — full-width green banner (tidak lagi masuk ke status bar)
+// Welcome header — full-width green banner
 // ─────────────────────────────────────────────────────────────────────────────
 class _WelcomeHeader extends StatelessWidget {
   const _WelcomeHeader();
@@ -44,6 +39,7 @@ class _WelcomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
+      // Tinggi tetap agar proporsional seperti desain
       constraints: const BoxConstraints(minHeight: 180),
       decoration: const BoxDecoration(
         color: AppColors.headerBg,
@@ -62,18 +58,17 @@ class _WelcomeHeader extends StatelessWidget {
                 'assets/images/leaf_deco.png',
                 width: 130,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) =>
-                    const _LeafDecoration(),
+                errorBuilder: (context, error, stackTrace) => const _LeafDecoration(),
               ),
             ),
           ),
 
           // ── Teks konten ───────────────────────────────────────────────
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 28, 140, 28),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 140, 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              children: const [
                 Text(
                   'Selamat datang di',
                   style: TextStyle(
