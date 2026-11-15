@@ -87,8 +87,8 @@ class _GuideTopBar extends StatelessWidget {
               children: [
                 // Tab aktif
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
                     color: AppColors.primaryGreen,
                     borderRadius: BorderRadius.circular(20),
@@ -182,11 +182,11 @@ class _HealthyPlaceholder extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Tidak ada panduan pengobatan yang diperlukan.\n'
               'Lanjutkan perawatan rutin.',
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Plus Jakarta Sans',
                 fontSize: 14,
                 height: 1.6,
@@ -207,13 +207,56 @@ class _HealthyPlaceholder extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // Body utama panduan
 // ─────────────────────────────────────────────────────────────────────────────
-class _GuideBody extends StatelessWidget {
+class _GuideBody extends StatefulWidget {
   final DiseaseResult result;
   final TreatmentGuide guide;
   const _GuideBody({required this.result, required this.guide});
 
   @override
+  State<_GuideBody> createState() => _GuideBodyState();
+}
+
+class _GuideBodyState extends State<_GuideBody> {
+  late final List<List<bool>> _checks;
+  late final List<bool> _manual; // untuk langkah tanpa poin
+
+  @override
+  void initState() {
+    super.initState();
+    _checks = [
+      for (final s in widget.guide.steps)
+        List<bool>.filled(s.items.length, false),
+    ];
+    _manual = List<bool>.filled(widget.guide.steps.length, false);
+  }
+
+  bool _isDone(int i) =>
+      _checks[i].isEmpty ? _manual[i] : _checks[i].every((c) => c);
+
+  int get _doneCount =>
+      List.generate(_checks.length, _isDone).where((d) => d).length;
+
+  void _toggleItem(int step, int item, bool v) =>
+      setState(() => _checks[step][item] = v);
+
+  void _toggleStep(int step) {
+    final v = !_isDone(step);
+    setState(() {
+      if (_checks[step].isEmpty) {
+        _manual[step] = v;
+      } else {
+        _checks[step].fillRange(0, _checks[step].length, v);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final result = widget.result;
+    final guide = widget.guide;
+    final total = guide.steps.length;
+    final done = _doneCount;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       child: Column(
@@ -233,9 +276,48 @@ class _GuideBody extends StatelessWidget {
           _MaterialsCard(materials: guide.materials),
           const SizedBox(height: 12),
 
+          // Progres langkah
+          if (total > 0) ...[
+            _Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$done dari $total langkah selesai',
+                    style: const TextStyle(
+                      fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: done / total,
+                      minHeight: 6,
+                      color: AppColors.primaryGreen,
+                      backgroundColor: const Color(0xFFE5E7EB),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
           // 3. Langkah-langkah
           for (var i = 0; i < guide.steps.length; i++) ...[
-            _StepCard(stepNumber: i + 1, step: guide.steps[i], guide: guide),
+            _StepCard(
+              stepNumber: i + 1,
+              step: guide.steps[i],
+              guide: guide,
+              checks: _checks[i],
+              done: _isDone(i),
+              onToggleItem: (item, v) => _toggleItem(i, item, v),
+              onToggleStep: () => _toggleStep(i),
+            ),
             const SizedBox(height: 10),
           ],
 
@@ -349,9 +431,7 @@ class _MaterialsCard extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: materials
-                .map((m) => _PrepChip(label: m))
-                .toList(),
+            children: materials.map((m) => _PrepChip(label: m)).toList(),
           ),
         ],
       ),
@@ -394,14 +474,26 @@ class _PrepChip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Step card
+// 3. Step card (nomor langkah & kotak centang bisa diklik)
 // ─────────────────────────────────────────────────────────────────────────────
 class _StepCard extends StatelessWidget {
   final int stepNumber;
   final GuideStep step;
   final TreatmentGuide guide;
-  const _StepCard(
-      {required this.stepNumber, required this.step, required this.guide});
+  final List<bool> checks;
+  final bool done;
+  final void Function(int item, bool value) onToggleItem;
+  final VoidCallback onToggleStep;
+
+  const _StepCard({
+    required this.stepNumber,
+    required this.step,
+    required this.guide,
+    required this.checks,
+    required this.done,
+    required this.onToggleItem,
+    required this.onToggleStep,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -409,43 +501,54 @@ class _StepCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ────────────────────────────────────────────────────────
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Nomor bulat
-              Container(
-                width: 28,
-                height: 28,
-                decoration: const BoxDecoration(
-                  color: AppColors.primaryGreen,
-                  shape: BoxShape.circle,
+          // ── Header (nomor bisa diklik) ───────────────────────────────────
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onToggleStep,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: done
+                        ? const Color(0xFF16A34A)
+                        : AppColors.primaryGreen,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: done
+                        ? const Icon(Icons.check,
+                            size: 16, color: Colors.white)
+                        : Text(
+                            '$stepNumber',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontFamily: 'Plus Jakarta Sans',
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
                 ),
-                child: Center(
+                const SizedBox(width: 10),
+                Expanded(
                   child: Text(
-                    '$stepNumber',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
+                    step.title,
+                    style: TextStyle(
                       fontFamily: 'Plus Jakarta Sans',
+                      fontSize: 14,
                       fontWeight: FontWeight.w700,
+                      color: done
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  step.title,
-                  style: const TextStyle(
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 8),
 
@@ -461,8 +564,13 @@ class _StepCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
-          // ── Item checklist ────────────────────────────────────────────────
-          for (final item in step.items) _ChecklistItem(text: item),
+          // ── Item checklist (bisa diklik) ──────────────────────────────────
+          for (var i = 0; i < step.items.length; i++)
+            _ChecklistItem(
+              text: step.items[i],
+              checked: checks[i],
+              onChanged: (v) => onToggleItem(i, v),
+            ),
 
           // ── Tip ───────────────────────────────────────────────────────────
           if (step.tip != null) ...[
@@ -501,38 +609,61 @@ class _StepCard extends StatelessWidget {
 
 class _ChecklistItem extends StatelessWidget {
   final String text;
-  const _ChecklistItem({required this.text});
+  final bool checked;
+  final ValueChanged<bool> onChanged;
+
+  const _ChecklistItem({
+    required this.text,
+    required this.checked,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            width: 14,
-            height: 14,
-            decoration: BoxDecoration(
-              border:
-                  Border.all(color: const Color(0xFFD1D5DB), width: 1.5),
-              borderRadius: BorderRadius.circular(3),
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => onChanged(!checked),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              margin: const EdgeInsets.only(top: 3),
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: checked ? AppColors.primaryGreen : Colors.transparent,
+                border: Border.all(
+                  color: checked
+                      ? AppColors.primaryGreen
+                      : const Color(0xFFD1D5DB),
+                  width: 1.5,
+                ),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: checked
+                  ? const Icon(Icons.check, size: 13, color: Colors.white)
+                  : null,
             ),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontFamily: 'Plus Jakarta Sans',
-                fontSize: 13,
-                height: 1.45,
-                color: AppColors.textPrimary,
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontFamily: 'Plus Jakarta Sans',
+                  fontSize: 13,
+                  height: 1.45,
+                  color: checked
+                      ? AppColors.textSecondary
+                      : AppColors.textPrimary,
+                  decoration: checked ? TextDecoration.lineThrough : null,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -669,8 +800,8 @@ class _MedicineItem extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: const Color(0xFFE0F2FE),
                   borderRadius: BorderRadius.circular(20),
@@ -883,8 +1014,8 @@ class _MonitorRow extends StatelessWidget {
                 children: [
                   // Label hari
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppColors.mintGreen,
                       borderRadius: BorderRadius.circular(10),

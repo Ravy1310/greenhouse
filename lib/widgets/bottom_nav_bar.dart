@@ -23,10 +23,20 @@ class BottomNavBar extends StatelessWidget {
         dark ? Colors.white.withValues(alpha: 0.08) : AppColors.sliderTrack;
     final inactiveColor =
         dark ? Colors.white.withValues(alpha: 0.5) : AppColors.textSecondary;
-    final activeColor =
-        dark ? Colors.white : AppColors.primaryGreen;
+    final activeColor = dark ? Colors.white : AppColors.primaryGreen;
     final activeBg =
         dark ? Colors.white.withValues(alpha: 0.12) : AppColors.mintGreen;
+
+    Widget item(int index, IconData icon, String label) => Expanded(
+          child: _buildNavItem(
+            index: index,
+            icon: icon,
+            label: label,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+            activeBg: activeBg,
+          ),
+        );
 
     return Container(
       decoration: BoxDecoration(
@@ -36,34 +46,13 @@ class BottomNavBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildNavItem(
-                index: 0,
-                icon: Icons.tune,
-                label: 'Kontrol',
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                activeBg: activeBg,
-              ),
-              _buildNavItem(
-                index: 1,
-                icon: Icons.crop_free,
-                label: 'Deteksi',
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                activeBg: activeBg,
-              ),
-              _buildNavItem(
-                index: 2,
-                icon: Icons.info_outline,
-                label: 'Info Aplikasi',
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                activeBg: activeBg,
-              ),
+              item(0, Icons.tune, 'Kontrol'),
+              item(1, Icons.crop_free, 'Deteksi'),
+              item(2, Icons.history, 'Riwayat Deteksi'),
+              item(3, Icons.info_outline, 'Info Aplikasi'),
             ],
           ),
         ),
@@ -86,7 +75,8 @@ class BottomNavBar extends StatelessWidget {
       onTap: () => onTap(index),
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         decoration: isSelected
             ? BoxDecoration(
                 color: activeBg,
@@ -98,9 +88,13 @@ class BottomNavBar extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 4),
-            Text(
-              label,
-              style: AppTextStyles.navLabel.copyWith(color: color),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: AppTextStyles.navLabel.copyWith(color: color),
+              ),
             ),
           ],
         ),

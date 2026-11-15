@@ -7,6 +7,7 @@ import '../widgets/jadwal_otomatis_card.dart';
 import '../widgets/kelembapan_riwayat_card.dart';
 import '../widgets/bottom_nav_bar.dart';
 import 'deteksi_screen.dart';
+import 'riwayat_deteksi_screen.dart';
 import 'info_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -56,10 +57,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-          Expanded(
-            child: _currentNavIndex == 0
-                ? const _KontrolPage()
-                : const InfoScreen(),
+                    Expanded(
+            child: switch (_currentNavIndex) {
+              0 => const _KontrolPage(),
+              2 => const RiwayatDeteksiScreen(),
+              _ => const InfoScreen(),
+            },
           ),
 
           // Fixed bottom nav

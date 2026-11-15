@@ -7,7 +7,18 @@ import 'package:sqflite/sqflite.dart';
 import '../models/disease_result.dart';
 import '../theme/app_colors.dart';
 import 'treatment_guide_screen.dart';
+import '../services/riwayat_deteksi_service.dart';
+import '../services/drive_backup_service.dart';
 
+Future<void> _cadangOtomatis() async {
+  try {
+    final d = DriveBackupService.instance;
+    if (d.email == null) await d.masukSenyap();
+    if (d.email != null) await d.cadangkan();
+  } catch (_) {
+    // Gagal cadangan tidak boleh mengganggu proses simpan
+  }
+}
 /// Layar hasil deteksi — ditampilkan setelah inferensi selesai.
 /// Menampilkan: gambar, nama hasil, keyakinan model, rincian probabilitas,
 /// form identitas tanaman, dan tombol panduan.
@@ -65,21 +76,35 @@ class HasilDeteksiScreen extends StatelessWidget {
                           DeteksiService.instance
                               .deteksiTerakhir(idTanaman, sebelum: sebelum),
                       onSimpan: (data) async {
-                        final messenger = ScaffoldMessenger.of(context);
+                      final messenger = ScaffoldMessenger.of(context);
                         try {
-                          // BACKEND: class DeteksiService (paling bawah file ini)
-                          await DeteksiService.instance.simpan(data);
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text('Data ${data.idTanaman} tersimpan'),
-                            ),
-                          );
+                      // 1) Simpan ke riwayat (dibaca layar Riwayat Deteksi)
+                      await RiwayatDeteksiService.instance.simpan(
+                        kodeDeteksi: data.idDeteksi,
+                        kodeTanaman: data.idTanaman,
+                        namaTanaman:
+                          'Meja ${data.meja} • Kolom ${data.kolom} • Baris ${data.baris}',
+                        label: data.hasilDeteksi,
+                       keyakinan: data.keyakinan,
+                      fotoPath: imageFile.path,
+                        );
+
+                      // 2) Tetap simpan ke DeteksiService agar fitur
+                     //    "Terakhir di-scan" & perbandingan tetap jalan
+                      await DeteksiService.instance.simpan(data);
+                      
+                      // 3) Cadangkan ke Google Drive (di latar belakang)
+                      _cadangOtomatis();
+
+                      messenger.showSnackBar(
+                       SnackBar(content: Text('Data ${data.idTanaman} tersimpan')),
+                        );
                         } catch (e) {
-                          messenger.showSnackBar(
-                            SnackBar(content: Text('Gagal menyimpan: $e')),
-                          );
-                        }
-                      },
+                      messenger.showSnackBar(
+                      SnackBar(content: Text('Gagal menyimpan: $e')),
+                     );
+                         }
+                          },
                     ),
                     const SizedBox(height: 16),
 
