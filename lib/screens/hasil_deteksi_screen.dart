@@ -76,35 +76,54 @@ class HasilDeteksiScreen extends StatelessWidget {
                       onCariSebelumnya: (idTanaman, sebelum) =>
                           DeteksiService.instance
                               .deteksiTerakhir(idTanaman, sebelum: sebelum),
+                      onIdBerikutnya: (idTanaman) =>
+                          DeteksiService.instance.idDeteksiBerikutnya(idTanaman),
                       onSimpan: (data) async {
                         final messenger = ScaffoldMessenger.of(context);
+                        IdentitasTanaman? tersimpan;
                         try {
-                          // 1) Simpan ke riwayat (dibaca layar Riwayat Deteksi)
+                          // 1) Simpan ke DeteksiService. ID Deteksi dibuat
+                          //    OLEH BACKEND (nomor urut, tidak pernah kembar)
+                          //    lalu dikembalikan di sini.
+                          tersimpan = await DeteksiService.instance.simpan(data);
+
+                          // 2) Simpan ke riwayat (dibaca layar Riwayat Deteksi)
+                          //    memakai ID final dari langkah 1.
                           await RiwayatDeteksiService.instance.simpan(
-                            kodeDeteksi: data.idDeteksi,
-                            kodeTanaman: data.idTanaman,
+                            kodeDeteksi: tersimpan.idDeteksi,
+                            kodeTanaman: tersimpan.idTanaman,
                             namaTanaman:
-                                'Meja ${data.meja}, Kolom ${data.kolom}, Baris ${data.baris}',
-                            label: data.hasilDeteksi,
-                            keyakinan: data.keyakinan,
+                                'Meja ${tersimpan.meja}, Kolom ${tersimpan.kolom}, Baris ${tersimpan.baris}',
+                            label: tersimpan.hasilDeteksi,
+                            keyakinan: tersimpan.keyakinan,
                             fotoPath: imageFile.path,
                           );
-
-                          // 2) Tetap simpan ke DeteksiService agar fitur
-                          //    "Terakhir di-scan" & perbandingan tetap jalan
-                          await DeteksiService.instance.simpan(data);
 
                           // 3) Cadangkan ke Google Drive (di latar belakang)
                           _cadangOtomatis();
 
                           messenger.showSnackBar(
                             SnackBar(
-                                content: Text('Data ${data.idTanaman} tersimpan')),
+                              content: Text(
+                                'Data ${tersimpan.idTanaman} tersimpan '
+                                '(ID Deteksi ${tersimpan.idDeteksi})',
+                              ),
+                            ),
                           );
+                          return tersimpan;
                         } catch (e) {
+                          // Kalau riwayat gagal, batalkan juga simpanan di
+                          // DeteksiService supaya kedua tabel tetap sama.
+                          if (tersimpan != null) {
+                            try {
+                              await DeteksiService.instance
+                                  .hapus(tersimpan.idDeteksi);
+                            } catch (_) {}
+                          }
                           messenger.showSnackBar(
                             SnackBar(content: Text('Gagal menyimpan: $e')),
                           );
+                          return null;
                         }
                       },
                     ),
@@ -314,8 +333,7 @@ class _DiseaseNameCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: levelColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
@@ -571,8 +589,8 @@ class _HealthyBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF86EFAC)),
       ),
-      child: const Row(
-        children: [
+      child: Row(
+        children: const [
           Icon(Icons.check_circle, color: Color(0xFF16A34A), size: 28),
           SizedBox(width: 12),
           Expanded(
@@ -616,7 +634,7 @@ class IdentitasTanaman {
   final int meja;
   final int kolom;
   final int baris;
-  final String idDeteksi; // contoh: 001, 002, dst.
+  final String idDeteksi; // contoh: DET-M3-K2-B5-001 (lokasi + nomor urut scan)
   final String hasilDeteksi; // contoh: Anthracnose / Sehat
   final bool isSehat;
   final double keyakinan; // 0.0 - 1.0 (keyakinan model)
@@ -633,6 +651,19 @@ class IdentitasTanaman {
     required this.keyakinan,
     required this.tanggal,
   });
+
+  /// Salinan dengan ID Deteksi baru (dipakai backend saat menyimpan).
+  IdentitasTanaman copyWith({String? idDeteksi}) => IdentitasTanaman(
+        idTanaman: idTanaman,
+        meja: meja,
+        kolom: kolom,
+        baris: baris,
+        idDeteksi: idDeteksi ?? this.idDeteksi,
+        hasilDeteksi: hasilDeteksi,
+        isSehat: isSehat,
+        keyakinan: keyakinan,
+        tanggal: tanggal,
+      );
 
   Map<String, dynamic> toMap() => {
         'id_tanaman': idTanaman,
@@ -663,8 +694,6 @@ class IdentitasTanaman {
 // FORM IDENTITAS TANAMAN + PERBANDINGAN SCAN (UI)
 // ─────────────────────────────────────────────────────────────────────────────
 
-
-
 /// Mencari scan terakhir sebelum [sebelum] untuk tanaman [idTanaman].
 typedef CariScanSebelumnya = Future<IdentitasTanaman?> Function(
   String idTanaman,
@@ -675,14 +704,21 @@ typedef CariScanSebelumnya = Future<IdentitasTanaman?> Function(
 /// waktu scan, dan perbandingan dengan scan terakhir tanaman yang sama.
 class IdentitasTanamanForm extends StatefulWidget {
   final DiseaseResult result;
-  final void Function(IdentitasTanaman data) onSimpan;
+
+  /// Menyimpan data. Mengembalikan data yang tersimpan (dengan ID Deteksi
+  /// final dari backend), atau null kalau gagal.
+  final Future<IdentitasTanaman?> Function(IdentitasTanaman data) onSimpan;
   final CariScanSebelumnya onCariSebelumnya;
+
+  /// ID Deteksi berikutnya untuk tanaman [idTanaman] (untuk ditampilkan).
+  final Future<String> Function(String idTanaman) onIdBerikutnya;
 
   const IdentitasTanamanForm({
     super.key,
     required this.result,
     required this.onSimpan,
     required this.onCariSebelumnya,
+    required this.onIdBerikutnya,
   });
 
   @override
@@ -699,7 +735,12 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
   int? _kolom;
   int? _baris;
   late final DateTime _tanggal; // waktu scan hari ini (otomatis)
-  late final String _idDeteksi;
+
+  /// ID Deteksi yang akan dipakai, dari backend. Berubah mengikuti
+  /// Meja/Kolom/Baris yang dipilih dan naik setiap selesai simpan.
+  String _idDeteksi = '-';
+  String? _lastIdQuery;
+  bool _menyimpan = false;
 
   // Data scan sebelumnya untuk tanaman yang dipilih
   IdentitasTanaman? _prev;
@@ -712,16 +753,34 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
   void initState() {
     super.initState();
     _tanggal = DateTime.now();
-    // ID Deteksi dibuat sederhana dengan nomor urut acak/waktu singkat 3 digit (mis: 001)
-    _idDeteksi = _generateIdDeteksiRingkas();
   }
 
-  // Menghasilkan ID Deteksi ringkas 3 digit (contoh: 001, 045, 128)
-  String _generateIdDeteksiRingkas() {
-    final now = DateTime.now();
-    // Menggunakan kombinasi detik dan milidetik agar unik namun pendek (3 digit terakhir)
-    int angkaUnik = (now.second * 1000 + now.millisecond) % 900 + 100;
-    return angkaUnik.toString().padLeft(3, '0');
+  /// Ambil ID Deteksi berikutnya untuk lokasi yang sedang dipilih.
+  Future<void> _muatIdBerikutnya() async {
+    if (!_lokasiLengkap) {
+      _lastIdQuery = null;
+      if (mounted) setState(() => _idDeteksi = '-');
+      return;
+    }
+
+    final idT = _idTanaman;
+    _lastIdQuery = idT;
+    setState(() => _idDeteksi = '...');
+    try {
+      final id = await widget.onIdBerikutnya(idT);
+      // Abaikan jawaban lama kalau lokasi sudah diganti lagi
+      if (!mounted || _lastIdQuery != idT) return;
+      setState(() => _idDeteksi = id);
+    } catch (e) {
+      debugPrint('[Form] gagal ambil ID deteksi: $e');
+      if (mounted && _lastIdQuery == idT) setState(() => _idDeteksi = '-');
+    }
+  }
+
+  /// Dipanggil setiap Meja/Kolom/Baris berubah.
+  void _lokasiBerubah() {
+    _cariSebelumnya();
+    _muatIdBerikutnya();
   }
 
   bool get _lokasiLengkap => _meja != null && _kolom != null && _baris != null;
@@ -782,24 +841,70 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
     return '${_fmtRelatif(scanLama.tanggal)} (${_fmtTanggal(scanLama.tanggal)})';
   }
 
-  void _simpan() {
+  Future<void> _simpan() async {
+    if (_menyimpan) return;
     if (!_lokasiLengkap) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lengkapi Meja, Kolom, dan Baris dulu.')),
       );
       return;
     }
-    widget.onSimpan(
-      IdentitasTanaman(
-        idTanaman: _idTanaman,
-        meja: _meja!,
-        kolom: _kolom!,
-        baris: _baris!,
-        idDeteksi: _idDeteksi,
-        hasilDeteksi: widget.result.displayName,
-        isSehat: widget.result.isHealthy,
-        keyakinan: widget.result.confidence.toDouble(),
-        tanggal: _tanggal,
+
+    setState(() => _menyimpan = true);
+    IdentitasTanaman? tersimpan;
+    try {
+      // ID Deteksi final ditentukan backend saat menyimpan.
+      tersimpan = await widget.onSimpan(
+        IdentitasTanaman(
+          idTanaman: _idTanaman,
+          meja: _meja!,
+          kolom: _kolom!,
+          baris: _baris!,
+          idDeteksi: _idDeteksi,
+          hasilDeteksi: widget.result.displayName,
+          isSehat: widget.result.isHealthy,
+          keyakinan: widget.result.confidence.toDouble(),
+          tanggal: _tanggal,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _menyimpan = false);
+    }
+
+    // Sudah tersimpan: nomor itu terpakai, tampilkan nomor berikutnya
+    // untuk tanaman ini.
+    if (mounted && tersimpan != null) await _muatIdBerikutnya();
+  }
+
+  Widget _kolomDropdown({
+    required String judul,
+    required int? value,
+    required int max,
+    required ValueChanged<int?> onChanged,
+  }) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 4),
+            child: Text(
+              judul,
+              style: const TextStyle(
+                fontFamily: 'Plus Jakarta Sans',
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          _DropdownField(
+            hint: 'Pilih',
+            value: value,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ],
       ),
     );
   }
@@ -831,91 +936,34 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 4),
-                      child: Text(
-                        'Meja',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    _DropdownField(
-                      hint: 'Pilih',
-                      value: _meja,
-                      max: _maxMeja,
-                      onChanged: (v) {
-                        setState(() => _meja = v);
-                        _cariSebelumnya();
-                      },
-                    ),
-                  ],
-                ),
+              _kolomDropdown(
+                judul: 'Meja',
+                value: _meja,
+                max: _maxMeja,
+                onChanged: (v) {
+                  setState(() => _meja = v);
+                  _lokasiBerubah();
+                },
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 4),
-                      child: Text(
-                        'Kolom',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    _DropdownField(
-                      hint: 'Pilih',
-                      value: _kolom,
-                      max: _maxKolom,
-                      onChanged: (v) {
-                        setState(() => _kolom = v);
-                        _cariSebelumnya();
-                      },
-                    ),
-                  ],
-                ),
+              _kolomDropdown(
+                judul: 'Kolom',
+                value: _kolom,
+                max: _maxKolom,
+                onChanged: (v) {
+                  setState(() => _kolom = v);
+                  _lokasiBerubah();
+                },
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 4),
-                      child: Text(
-                        'Baris',
-                        style: TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    _DropdownField(
-                      hint: 'Pilih',
-                      value: _baris,
-                      max: _maxBaris,
-                      onChanged: (v) {
-                        setState(() => _baris = v);
-                        _cariSebelumnya();
-                      },
-                    ),
-                  ],
-                ),
+              _kolomDropdown(
+                judul: 'Baris',
+                value: _baris,
+                max: _maxBaris,
+                onChanged: (v) {
+                  setState(() => _baris = v);
+                  _lokasiBerubah();
+                },
               ),
             ],
           ),
@@ -929,7 +977,7 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
           _ReadOnlyField(text: _idTanaman, icon: Icons.local_florist_outlined),
           const SizedBox(height: 14),
 
-          // ── ID Deteksi (format ringkas 001) ────────────────────────────
+          // ── ID Deteksi (ikut berubah sesuai lokasi tanaman) ────────────
           const _Label('ID Deteksi'),
           const SizedBox(height: 6),
           _ReadOnlyField(text: _idDeteksi, icon: Icons.tag),
@@ -995,27 +1043,35 @@ class _IdentitasTanamanFormState extends State<IdentitasTanamanForm> {
 
           const SizedBox(height: 18),
 
-          // ── Tombol Simpan Data (Bisa diklik berkali-kali untuk riwayat baru) ──
+          // ── Tombol Simpan Data ─────────────────────────────────────────
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _simpan,
-              icon: const Icon(Icons.save_outlined, size: 20),
-              label: const Text(
-                'Simpan Data Identitas',
-                style: TextStyle(
+              onPressed: _menyimpan ? null : _simpan,
+              icon: _menyimpan
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.save_outlined, size: 20),
+              label: Text(
+                _menyimpan ? 'Menyimpan...' : 'Simpan Data Identitas',
+                style: const TextStyle(
                   fontFamily: 'Plus Jakarta Sans',
                   fontSize: 14.5,
- 
- 
                   fontWeight: FontWeight.w700,
-   
                 ),
               ),
-
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.textPrimary,
                 foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    AppColors.textPrimary.withValues(alpha: 0.6),
+                disabledForegroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -1187,12 +1243,14 @@ class _PerbandinganCard extends StatelessWidget {
       borderColor = const Color(0xFF86EFAC);
       textColor = const Color(0xFF166534);
     } else if (prev.isSehat && !now.isHealthy) {
-      statusPesan = 'Perhatian: Tanaman sebelumnya sehat, kini terdeteksi penyakit.';
+      statusPesan =
+          'Perhatian: Tanaman sebelumnya sehat, kini terdeteksi penyakit.';
       bgColor = const Color(0xFFFEE2E2);
       borderColor = const Color(0xFFFCA5A5);
       textColor = const Color(0xFF991B1B);
     } else if (prev.hasilDeteksi == now.displayName) {
-      statusPesan = 'Hasil sama seperti pemindaian sebelumnya (${prev.hasilDeteksi}).';
+      statusPesan =
+          'Hasil sama seperti pemindaian sebelumnya (${prev.hasilDeteksi}).';
       bgColor = const Color(0xFFEFF6FF);
       borderColor = const Color(0xFFBFDBFE);
       textColor = const Color(0xFF1E40AF);
@@ -1276,24 +1334,43 @@ String _fmtRelatif(DateTime dt) {
 // BACKEND SQLITE (DeteksiService)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// BACKEND: simpan & baca data deteksi (SQLite).
+///
+/// ID Deteksi dibuat DI SINI dan memuat lokasi tanaman + nomor urut scan
+/// tanaman itu, contoh: DET-M3-K2-B5-001, DET-M3-K2-B5-002, ...
+///  • ganti Meja/Kolom/Baris  -> ID Deteksi ikut berubah
+///  • scan tanaman yang sama  -> nomor urutnya naik
+///  • nomor yang sudah dipakai tidak pernah dipakai lagi (ada tabel penghitung)
 class DeteksiService {
   DeteksiService._();
   static final DeteksiService instance = DeteksiService._();
 
- 
+  static const String _table = 'deteksi_tanaman';
+  static const String _tabelUrutan = 'urutan_tanaman';
   Database? _db;
 
+  Future<void> _buatTabelUrutan(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_tabelUrutan (
+        id_tanaman TEXT PRIMARY KEY,
+        terakhir INTEGER NOT NULL
+      )
+    ''');
+  }
+
   Future<Database> get database async {
-    if (_db != null) return _db!;
+    final existing = _db;
+    if (existing != null) return existing;
+
     final dbPath = await getDatabasesPath();
     final path = p.join(dbPath, 'identitas_deteksi.db');
 
-    _db = await openDatabase(
+    final db = await openDatabase(
       path,
-      version: 1,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
-          CREATE TABLE deteksi_tanaman (
+          CREATE TABLE $_table (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             id_tanaman TEXT NOT NULL,
             meja INTEGER NOT NULL,
@@ -1307,33 +1384,101 @@ class DeteksiService {
           )
         ''');
         await db.execute(
-          'CREATE INDEX idx_id_tanaman ON deteksi_tanaman (id_tanaman)',
+          'CREATE INDEX idx_id_tanaman ON $_table (id_tanaman)',
         );
+        // Pengaman terakhir: database menolak ID Deteksi yang kembar.
+        await db.execute(
+          'CREATE UNIQUE INDEX idx_id_deteksi_unik ON $_table (id_deteksi)',
+        );
+        await _buatTabelUrutan(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          try {
+            await db.execute(
+              'CREATE UNIQUE INDEX IF NOT EXISTS idx_id_deteksi_unik '
+              'ON $_table (id_deteksi)',
+            );
+          } catch (e) {
+            // Data uji lama masih ada ID yang kembar (mis. dua kali "634").
+            debugPrint('[DeteksiService] ID lama masih kembar: $e');
+          }
+        }
+        if (oldVersion < 3) {
+          await _buatTabelUrutan(db);
+        }
       },
     );
-    return _db!;
+    _db = db;
+    return db;
   }
 
-  
-  Future<void> simpan(IdentitasTanaman data) async {
-    final db = await database;
-    // Menggunakan insert tanpa conflict conflictAlgorithm replace pada id_tanaman
-    // agar data scan baru untuk tanaman yang sama tetap tersimpan sebagai riwayat baru (ganda/berulang).
-    await db.insert(
-      'deteksi_tanaman',
-      data.toMap(),
- 
+  /// Contoh: idTanaman "M3-K2-B5", urutan 1 -> "DET-M3-K2-B5-001"
+  String _formatId(String idTanaman, int urutan) =>
+      'DET-$idTanaman-${urutan.toString().padLeft(3, '0')}';
+
+  /// Nomor urut scan berikutnya untuk satu tanaman. Diambil dari yang
+  /// terbesar antara tabel penghitung dan ID yang sudah ada, lalu + 1.
+  Future<int> _urutanBerikutnya(DatabaseExecutor ex, String idTanaman) async {
+    final hitung = await ex.query(
+      _tabelUrutan,
+      columns: ['terakhir'],
+      where: 'id_tanaman = ?',
+      whereArgs: [idTanaman],
+      limit: 1,
     );
+    final a = hitung.isEmpty ? 0 : (hitung.first['terakhir'] as num).toInt();
+
+    final awalan = 'DET-$idTanaman-';
+    final maks = await ex.rawQuery(
+      'SELECT MAX(CAST(SUBSTR(id_deteksi, ?) AS INTEGER)) AS m '
+      'FROM $_table WHERE id_deteksi LIKE ?',
+      [awalan.length + 1, '$awalan%'],
+    );
+    final b = maks.isEmpty ? 0 : ((maks.first['m'] as num?)?.toInt() ?? 0);
+
+    return (a > b ? a : b) + 1;
   }
 
+  /// ID Deteksi berikutnya untuk tanaman ini (untuk ditampilkan di form).
+  Future<String> idDeteksiBerikutnya(String idTanaman) async {
+    final db = await database;
+    return _formatId(idTanaman, await _urutanBerikutnya(db, idTanaman));
+  }
 
+  /// Simpan satu scan. ID Deteksi ditentukan di sini (dalam satu transaksi,
+  /// jadi aman walau tombol ditekan dua kali) dan dikembalikan ke pemanggil.
+  Future<IdentitasTanaman> simpan(IdentitasTanaman data) async {
+    final db = await database;
+    return db.transaction<IdentitasTanaman>((txn) async {
+      final urutan = await _urutanBerikutnya(txn, data.idTanaman);
+      final tersimpan =
+          data.copyWith(idDeteksi: _formatId(data.idTanaman, urutan));
+      await txn.insert(_table, tersimpan.toMap());
+      await txn.insert(
+        _tabelUrutan,
+        {'id_tanaman': data.idTanaman, 'terakhir': urutan},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return tersimpan;
+    });
+  }
+
+  /// Hapus satu data (dipakai untuk membatalkan bila penyimpanan riwayat
+  /// gagal). Nomornya tetap tidak dipakai ulang karena penghitung tidak turun.
+  Future<void> hapus(String idDeteksi) async {
+    final db = await database;
+    await db.delete(_table, where: 'id_deteksi = ?', whereArgs: [idDeteksi]);
+  }
+
+  /// Scan terakhir tanaman ini yang lebih lama dari [sebelum].
   Future<IdentitasTanaman?> deteksiTerakhir(
     String idTanaman, {
     required DateTime sebelum,
   }) async {
     final db = await database;
     final rows = await db.query(
-      'deteksi_tanaman',
+      _table,
       where: 'id_tanaman = ? AND tanggal < ?',
       whereArgs: [idTanaman, sebelum.toIso8601String()],
       orderBy: 'tanggal DESC',
