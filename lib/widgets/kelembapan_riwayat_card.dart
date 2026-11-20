@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/jadwal_item.dart';
-import '../services/database_helper.dart';
+import '../services/mqtt_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
+/// Riwayat penyiraman. Setiap kali pompa menyala (manual maupun jadwal)
+/// punya catatan sendiri: jam, durasi, dan total liter. Data dari ESP32.
 class KelembapanRiwayatCard extends StatefulWidget {
   const KelembapanRiwayatCard({super.key});
 
@@ -12,130 +13,252 @@ class KelembapanRiwayatCard extends StatefulWidget {
 }
 
 class _KelembapanRiwayatCardState extends State<KelembapanRiwayatCard> {
-  late Future<_Terakhir?> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _muat();
-  }
+  static const _batasRingkas = 5;
+  bool _semua = false;
 
   static const _namaHari = [
     'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
   ];
 
-  /// Cari jadwal aktif yang paling baru sudah lewat (maks. 7 hari ke belakang).
-  Future<_Terakhir?> _muat() async {
-    final list = await DatabaseHelper.instance.getAll();
-    final aktif = list.where((j) => j.isOn && j.days.isNotEmpty).toList();
-    if (aktif.isEmpty) return null;
+  DateTime? _parse(String raw) =>
+      DateTime.tryParse(raw.trim().replaceFirst(' ', 'T'));
 
+  /// "2026-11-20 14:05:10" -> "14:05"
+  String _jam(String raw) {
+    final t = _parse(raw);
+    if (t == null) return '--:--';
+    return '${t.hour.toString().padLeft(2, '0')}:'
+        '${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// "2026-11-20 14:05:10" -> "Hari ini" / "Kemarin" / "Senin" / "12/11/2026"
+  String _tanggal(String raw) {
+    final t = _parse(raw);
+    if (t == null) return 'Waktu tidak tercatat';
     final now = DateTime.now();
-    for (int mundur = 0; mundur <= 7; mundur++) {
-      final tgl = DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: mundur));
-      final hari = tgl.weekday - 1; // 0 = Senin
-      JadwalItem? terbaik;
-      for (final j in aktif) {
-        if (!j.days.contains(hari)) continue;
-        final waktu = DateTime(
-            tgl.year, tgl.month, tgl.day, j.time.hour, j.time.minute);
-        if (waktu.isAfter(now)) continue; // belum terjadi
-        if (terbaik == null ||
-            j.time.hour * 60 + j.time.minute >
-                terbaik.time.hour * 60 + terbaik.time.minute) {
-          terbaik = j;
-        }
-      }
-      if (terbaik != null) {
-        final label = mundur == 0
-            ? 'Hari ini'
-            : mundur == 1
-                ? 'Kemarin'
-                : _namaHari[hari];
-        return _Terakhir('$label, ${terbaik.timeString}', terbaik.durasi);
-      }
-    }
-    return null;
+    final hariIni = DateTime(now.year, now.month, now.day);
+    final selisih = hariIni.difference(DateTime(t.year, t.month, t.day)).inDays;
+    if (selisih <= 0) return 'Hari ini';
+    if (selisih == 1) return 'Kemarin';
+    if (selisih < 7) return _namaHari[t.weekday - 1];
+    return '${t.day}/${t.month}/${t.year}';
+  }
+
+  String _fmtDurasi(int detik) {
+    if (detik < 60) return '$detik detik';
+    final m = detik ~/ 60;
+    final d = detik % 60;
+    return d == 0 ? '$m menit' : '$m menit $d detik';
+  }
+
+  String _namaSumber(String sumber) =>
+      sumber == 'jadwal' ? 'Otomatis' : 'Manual';
+
+  Widget _baris(RiwayatSesi r) {
+    final gagal = r.alasan == 'tanpa aliran';
+    final subtitle = '${_tanggal(r.waktu)} • ${_fmtDurasi(r.durasiDetik)} • '
+        '${_namaSumber(r.sumber)}${gagal ? ' • Tanpa aliran' : ''}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: gagal ? const Color(0xFFFFEEEE) : AppColors.mintGreen,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              gagal ? Icons.error_outline : Icons.water_drop_outlined,
+              size: 20,
+              color: gagal ? Colors.red : AppColors.primaryGreen,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_jam(r.waktu), style: AppTextStyles.cardTitle),
+                const SizedBox(height: 2),
+                Text(subtitle, style: AppTextStyles.cardSubtitle),
+              ],
+            ),
+          ),
+          Text('${r.liter.toStringAsFixed(1)} L',
+              style: AppTextStyles.cardTitle),
+        ],
+      ),
+    );
+  }
+
+  void _konfirmasiReset(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Reset total air?', style: AppTextStyles.cardTitle),
+        content: const Text(
+          'Total air terpakai akan dikembalikan ke 0 L.',
+          style: AppTextStyles.cardSubtitle,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal',
+                style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              MqttService.instance.resetTotalLiter();
+            },
+            child: const Text('Reset',
+                style: TextStyle(
+                    color: Colors.red,
+                    fontFamily: 'Plus Jakarta Sans',
+                    fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _info(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: AppColors.mintGreen,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 18, color: AppColors.primaryGreen),
+        ),
+        const SizedBox(width: 10),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(value, style: AppTextStyles.cardTitle),
+            const SizedBox(height: 2),
+            Text(label, style: AppTextStyles.hint),
+          ],
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: FutureBuilder<_Terakhir?>(
-        future: _future,
-        builder: (context, snap) {
-          final data = snap.data;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Penyiraman terakhir',
-                      style: AppTextStyles.hint),
-                  if (data != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppColors.mintGreen,
-                        borderRadius: BorderRadius.circular(20),
+    final svc = MqttService.instance;
+    return ListenableBuilder(
+      listenable: Listenable.merge(
+          [svc.link, svc.perangkatOnline, svc.status, svc.riwayat]),
+      builder: (context, _) {
+        final s = svc.status.value;
+        final daftar = svc.riwayat.value; // null = belum ada data
+        final live =
+            svc.link.value == MqttLink.terhubung && svc.perangkatOnline.value;
+
+        final tampil = daftar == null
+            ? const <RiwayatSesi>[]
+            : (_semua ? daftar : daftar.take(_batasRingkas).toList());
+        // Kosong ("--") bila belum terhubung / perangkat offline,
+        // agar data lama (retained) dari broker tidak ikut tampil.
+        final totalLiter = (s == null || !live)
+            ? '--'
+            : '${s.literTotal.toStringAsFixed(1)} L';
+
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.cardBackground,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Opacity(
+            // Redup bila belum terhubung (data = yang terakhir diketahui).
+            opacity: live ? 1.0 : 0.5,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Riwayat penyiraman', style: AppTextStyles.hint),
+                const SizedBox(height: 6),
+
+                if (tampil.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      (daftar == null && !live)
+                          ? 'Menunggu data dari perangkat'
+                          : 'Belum ada penyiraman',
+                      style: AppTextStyles.lastWateringTitle,
+                    ),
+                  )
+                else
+                  for (int i = 0; i < tampil.length; i++) ...[
+                    _baris(tampil[i]),
+                    if (i != tampil.length - 1)
+                      const Divider(height: 1, color: AppColors.sliderTrack),
+                  ],
+
+                if (daftar != null && daftar.length > _batasRingkas)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      onPressed: () => setState(() => _semua = !_semua),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppColors.primaryGreen,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 5),
-                          const Text(
-                            'Berhasil',
-                            style: TextStyle(
-                              color: AppColors.primaryGreen,
-                              fontSize: 11,
-                              fontFamily: 'Plus Jakarta Sans',
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        _semua
+                            ? 'Tampilkan lebih sedikit'
+                            : 'Lihat semua (${daftar.length})',
+                        style: const TextStyle(
+                          color: AppColors.primaryGreen,
+                          fontSize: 12,
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                data?.waktu ?? 'Belum ada penyiraman',
-                style: AppTextStyles.lastWateringTitle,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                data == null
-                    ? 'Atur jadwal otomatis di atas'
-                    : '${data.durasi} menit • Otomatis',
-                style: AppTextStyles.hint,
-              ),
-            ],
-          );
-        },
-      ),
+                  ),
+
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _info(
+                          Icons.opacity, 'Total air terpakai', totalLiter),
+                    ),
+                    TextButton(
+                      onPressed: live ? () => _konfirmasiReset(context) : null,
+                      child: Text(
+                        'Reset',
+                        style: TextStyle(
+                          color: live ? Colors.red : AppColors.textSecondary,
+                          fontSize: 12,
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
-}
-
-class _Terakhir {
-  final String waktu;
-  final int durasi;
-  const _Terakhir(this.waktu, this.durasi);
 }
