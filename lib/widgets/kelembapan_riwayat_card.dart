@@ -93,74 +93,13 @@ class _KelembapanRiwayatCardState extends State<KelembapanRiwayatCard> {
     );
   }
 
-  void _konfirmasiReset(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Reset total air?', style: AppTextStyles.cardTitle),
-        content: const Text(
-          'Total air terpakai akan dikembalikan ke 0 L.',
-          style: AppTextStyles.cardSubtitle,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Batal',
-                style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontWeight: FontWeight.w600)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              MqttService.instance.resetTotalLiter();
-            },
-            child: const Text('Reset',
-                style: TextStyle(
-                    color: Colors.red,
-                    fontFamily: 'Plus Jakarta Sans',
-                    fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _info(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: AppColors.mintGreen,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, size: 18, color: AppColors.primaryGreen),
-        ),
-        const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(value, style: AppTextStyles.cardTitle),
-            const SizedBox(height: 2),
-            Text(label, style: AppTextStyles.hint),
-          ],
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final svc = MqttService.instance;
     return ListenableBuilder(
       listenable: Listenable.merge(
-          [svc.link, svc.perangkatOnline, svc.status, svc.riwayat]),
+          [svc.link, svc.perangkatOnline, svc.riwayat]),
       builder: (context, _) {
-        final s = svc.status.value;
         final daftar = svc.riwayat.value; // null = belum ada data
         final live =
             svc.link.value == MqttLink.terhubung && svc.perangkatOnline.value;
@@ -168,11 +107,6 @@ class _KelembapanRiwayatCardState extends State<KelembapanRiwayatCard> {
         final tampil = daftar == null
             ? const <RiwayatSesi>[]
             : (_semua ? daftar : daftar.take(_batasRingkas).toList());
-        // Kosong ("--") bila belum terhubung / perangkat offline,
-        // agar data lama (retained) dari broker tidak ikut tampil.
-        final totalLiter = (s == null || !live)
-            ? '--'
-            : '${s.literTotal.toStringAsFixed(1)} L';
 
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -230,30 +164,6 @@ class _KelembapanRiwayatCardState extends State<KelembapanRiwayatCard> {
                       ),
                     ),
                   ),
-
-                const SizedBox(height: 10),
-                const Divider(height: 1),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _info(
-                          Icons.opacity, 'Total air terpakai', totalLiter),
-                    ),
-                    TextButton(
-                      onPressed: live ? () => _konfirmasiReset(context) : null,
-                      child: Text(
-                        'Reset',
-                        style: TextStyle(
-                          color: live ? Colors.red : AppColors.textSecondary,
-                          fontSize: 12,
-                          fontFamily: 'Plus Jakarta Sans',
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),

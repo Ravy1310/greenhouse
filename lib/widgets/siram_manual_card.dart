@@ -1,10 +1,58 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/mqtt_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
-class SiramManualCard extends StatelessWidget {
+class SiramManualCard extends StatefulWidget {
   const SiramManualCard({super.key});
+
+  @override
+  State<SiramManualCard> createState() => _SiramManualCardState();
+}
+
+class _SiramManualCardState extends State<SiramManualCard> {
+  /// Nilai yang diminta pengguna dan sedang menunggu konfirmasi ESP32.
+  /// null = tidak ada perintah yang menunggu.
+  bool? _tunggu;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _bersihkanTunggu() {
+    _tunggu = null;
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  void _ubah(bool nyala, MqttService svc) {
+    if (_tunggu != null) return; // abaikan ketukan saat masih menunggu
+    setState(() => _tunggu = nyala);
+    if (nyala) {
+      svc.pompaNyala(MqttService.manualMenit);
+    } else {
+      svc.pompaMati();
+    }
+    // Bila ESP32 tidak membalas, kembali ke status sebenarnya.
+    _timer?.cancel();
+    _timer = Timer(const Duration(seconds: 5), () {
+      if (mounted) setState(_bersihkanTunggu);
+    });
+  }
+
+  /// Dipanggil saat tombol nonaktif diketuk: jelaskan penyebabnya.
+  void _tampilAlasan(BuildContext context, MqttService svc) {
+    final pesan = svc.link.value != MqttLink.terhubung
+        ? 'Belum terhubung ke broker MQTT. Periksa koneksi internet HP.'
+        : 'Perangkat offline. Nyalakan ESP32 atau jalankan simulasi Wokwi dulu.';
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(pesan)));
+  }
 
   String _fmt(int detik) {
     final m = detik ~/ 60;
@@ -15,6 +63,7 @@ class SiramManualCard extends StatelessWidget {
   String _subtitle(MqttLink link, bool online, PerangkatStatus s) {
     if (link != MqttLink.terhubung) return 'Katup 1 · Belum terhubung ke broker';
     if (!online) return 'Katup 1 · Perangkat offline';
+    if (_tunggu != null) return 'Katup 1 · Mengirim perintah…';
     if (s.pompa) {
       return 'Katup 1 · Menyiram (${s.sumber})';
     }
@@ -85,7 +134,16 @@ class SiramManualCard extends StatelessWidget {
         final s = svc.status.value ?? PerangkatStatus.kosong;
         final siap =
             svc.link.value == MqttLink.terhubung && svc.perangkatOnline.value;
-        final menyala = siap && s.pompa;
+        final menyala = siap && s.pompa; // status sebenarnya dari ESP32
+
+        // ESP32 sudah membalas sesuai permintaan, atau koneksi putus:
+        // lepaskan status "menunggu".
+        if (_tunggu != null && (!siap || menyala == _tunggu)) {
+          _bersihkanTunggu();
+        }
+
+        // Switch mengikuti ketukan pengguna selama menunggu balasan.
+        final tampilNyala = _tunggu ?? menyala;
 
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -125,18 +183,21 @@ class SiramManualCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Switch(
-                    value: menyala,
-                    // null = nonaktif bila perangkat/broker tidak tersedia
-                    onChanged: siap
-                        ? (v) => v
-                            ? svc.pompaNyala(MqttService.manualMenit)
-                            : svc.pompaMati()
-                        : null,
-                    activeThumbColor: Colors.white,
-                    activeTrackColor: AppColors.toggleActive,
-                    inactiveThumbColor: Colors.white,
-                    inactiveTrackColor: AppColors.toggleInactive,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: siap ? null : () => _tampilAlasan(context, svc),
+                    child: AbsorbPointer(
+                      absorbing: !siap,
+                      child: Switch(
+                        value: tampilNyala,
+                        // null = nonaktif bila perangkat/broker tidak tersedia
+                        onChanged: siap ? (v) => _ubah(v, svc) : null,
+                        activeThumbColor: Colors.white,
+                        activeTrackColor: AppColors.toggleActive,
+                        inactiveThumbColor: Colors.white,
+                        inactiveTrackColor: AppColors.toggleInactive,
+                      ),
+                    ),
                   ),
                 ],
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 
@@ -7,35 +8,51 @@ class InfoScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // SafeArea memastikan seluruh konten (termasuk saat di-scroll)
-    // selalu berada di bawah area status bar / notifikasi sistem.
-    return SafeArea(
-      bottom: false, // Bagian bawah dibiarkan normal (opsional, sesuaikan dengan kebutuhan)
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _WelcomeHeader(),
-            SizedBox(height: 20),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: _StepGuideSection(),
+    // Tinggi status bar (jam, sinyal, notifikasi) di bagian atas layar.
+    final topInset = MediaQuery.of(context).padding.top;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Ikon status bar jadi gelap supaya terbaca di latar putih
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark, // Android
+        statusBarBrightness: Brightness.light, // iOS
+      ),
+      child: Column(
+        children: [
+          // ── Area status bar: putih, tetap di atas saat layar digulir ──
+          Container(width: double.infinity, height: topInset, color: Colors.white),
+
+          // ── Isi halaman (header hijau + panduan + FAQ) ────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  _WelcomeHeader(),
+                  SizedBox(height: 20),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: _StepGuideSection(),
+                  ),
+                  SizedBox(height: 20),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: _FAQSection(),
+                  ),
+                  SizedBox(height: 24),
+                ],
+              ),
             ),
-            SizedBox(height: 20),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: _FAQSection(),
-            ),
-            SizedBox(height: 24),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Welcome header — full-width green banner (tidak lagi masuk ke status bar)
+// Welcome header — full-width green banner
 // ─────────────────────────────────────────────────────────────────────────────
 class _WelcomeHeader extends StatelessWidget {
   const _WelcomeHeader();
@@ -44,6 +61,7 @@ class _WelcomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
+      // Tinggi tetap agar proporsional seperti desain
       constraints: const BoxConstraints(minHeight: 180),
       decoration: const BoxDecoration(
         color: AppColors.headerBg,
@@ -69,11 +87,11 @@ class _WelcomeHeader extends StatelessWidget {
           ),
 
           // ── Teks konten ───────────────────────────────────────────────
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 28, 140, 28),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 140, 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              children: const [
                 Text(
                   'Selamat datang di',
                   style: TextStyle(
@@ -197,7 +215,7 @@ class _StepGuideSection extends StatelessWidget {
               _StepItem(
                 number: '3',
                 title: 'Sinkronisasi',
-                description: 'Hubungkan sensor dan katup lewat BLE/LoRa.',
+                description: 'Hubungkan sensor dan katup lewat WiFi.',
                 isLast: true,
               ),
             ],
@@ -211,13 +229,13 @@ class _StepGuideSection extends StatelessWidget {
 class _StepItem extends StatelessWidget {
   final String number;
   final String title;
-  final String description;
+  final String? description;
   final bool isLast;
 
   const _StepItem({
     required this.number,
     required this.title,
-    required this.description,
+    this.description,
     required this.isLast,
   });
 
@@ -256,8 +274,10 @@ class _StepItem extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(title, style: AppTextStyles.cardTitle),
-                    const SizedBox(height: 2),
-                    Text(description, style: AppTextStyles.cardSubtitle),
+                    if (description != null) ...[
+                      const SizedBox(height: 2),
+                      Text(description!, style: AppTextStyles.cardSubtitle),
+                    ],
                   ],
                 ),
               ),
@@ -278,7 +298,7 @@ class _StepItem extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pertanyaan Umum — accordion selalu terbuka setelah di-tap
+// Pertanyaan Umum — accordion, terbuka secara default dan bisa ditutup
 // ─────────────────────────────────────────────────────────────────────────────
 class _FAQSection extends StatelessWidget {
   const _FAQSection();
@@ -294,12 +314,14 @@ class _FAQSection extends StatelessWidget {
           title: 'Bagaimana cara memindai daun?',
           description:
               'Buka tab Deteksi, arahkan kamera ke daun yang sakit, lalu tekan tombol foto. Hasilnya langsung muncul.',
+          initiallyExpanded: true,
         ),
         const SizedBox(height: 10),
         const _FAQItem(
           title: 'Bagaimana cara mengatur jadwal siram?',
           description:
               'Buka tab Kontrol, tekan tombol (+) pada Jadwal Otomatis, lalu pilih waktu penyiramannya.',
+          initiallyExpanded: true,
         ),
       ],
     );
@@ -310,14 +332,27 @@ class _FAQItem extends StatefulWidget {
   final String title;
   final String description;
 
-  const _FAQItem({required this.title, required this.description});
+  /// true = langsung terbuka saat layar dibuka (seperti di desain).
+  final bool initiallyExpanded;
+
+  const _FAQItem({
+    required this.title,
+    required this.description,
+    this.initiallyExpanded = false,
+  });
 
   @override
   State<_FAQItem> createState() => _FAQItemState();
 }
 
 class _FAQItemState extends State<_FAQItem> {
-  bool _expanded = false;
+  late bool _expanded;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.initiallyExpanded;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -335,7 +370,8 @@ class _FAQItemState extends State<_FAQItem> {
             onTap: () => setState(() => _expanded = !_expanded),
             behavior: HitTestBehavior.opaque,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               child: Row(
                 children: [
                   Expanded(
@@ -357,20 +393,35 @@ class _FAQItemState extends State<_FAQItem> {
             ),
           ),
 
-          // ── Body (terbuka) ───────────────────────────────────────────
-          if (_expanded) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Divider(height: 1, thickness: 1, color: AppColors.sliderTrack),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Text(
-                widget.description,
-                style: AppTextStyles.cardSubtitle.copyWith(height: 1.6),
-              ),
-            ),
-          ],
+          // ── Body (dengan animasi buka/tutup) ────────────────────────────
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _expanded
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: AppColors.sliderTrack,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        child: Text(
+                          widget.description,
+                          style: AppTextStyles.cardSubtitle
+                              .copyWith(height: 1.6),
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
         ],
       ),
     );
